@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "scors-pages",
+  "pages_build_output_dir": "public",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
