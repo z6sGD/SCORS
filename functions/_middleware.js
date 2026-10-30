@@ -1,13 +1,12 @@
-import { handleScorsRequest } from "./scorsCore.js";
+import { handleScorsRequest } from "../src/scorsCore.js";
 
-export default {
-  async fetch(request, env, ctx) {
-    const response = await handleScorsRequest(request);
-    
-    if (response) {
-      return response;
-    }
+export async function onRequest(context) {
+  const response = await handleScorsRequest(context.request);
 
-    return new Response("Not Found", { status: 404 });
-  },
-};
+  if (response) {
+    return response;
+  }
+
+  // Pass non-/scors requests to static assets (e.g. public/index.html)
+  return context.next();
+}
