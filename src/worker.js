@@ -9,7 +9,7 @@ export default {
     }
 
     return new Response(
-      "SCORS Stateless Edge Proxy Engine Active. Endpoint: /scors?url=[https://example.com](https://example.com)",
+      "SCORS Stateless Edge Proxy Engine Active. Endpoint: /scors?url=https://example.com",
       {
         status: 200,
         headers: { "Content-Type": "text/plain" },
