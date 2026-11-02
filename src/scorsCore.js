@@ -1,5 +1,5 @@
 // src/scorsCore.js
-import { generateScorsDeviceId, verifyScorsDeviceId } from "./scorsToken.js";
+import { generateScorsDeviceId } from "./scorsToken.js";
 
 export async function handleScorsRequest(request, env) {
   const reqUrl = new URL(request.url);
@@ -39,7 +39,7 @@ export async function handleScorsRequest(request, env) {
       return new Response(JSON.stringify({ error: "Forbidden target host" }), { status: 403, headers: corsHeaders });
     }
 
-    // Extract Context Data
+    // Context Extraction
     const publicIp = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "127.0.0.1";
     const localIp = request.headers.get("x-local-ip") || reqUrl.searchParams.get("local_ip") || "10.0.0.1";
     const macAddr = request.headers.get("x-mac-address") || reqUrl.searchParams.get("mac") || "";
@@ -48,7 +48,7 @@ export async function handleScorsRequest(request, env) {
     // 1. Calculate Ground-Truth Device ID
     const actualDeviceId = generateScorsDeviceId(publicIp, localIp, macAddr, userAgent);
 
-    // 2. Anti-Spoofing Check
+    // 2. Anti-Spoofing Verification Check
     const clientProvidedToken = request.headers.get("SCORS-Unique-Device-ID");
     if (clientProvidedToken && clientProvidedToken !== actualDeviceId) {
       return new Response(
@@ -57,18 +57,22 @@ export async function handleScorsRequest(request, env) {
       );
     }
 
-    // 3. ToS Banlist Check via Cloudflare KV
+    // 3. Edge KV Banlist Check
     if (env && env.SCORS_BANLIST) {
       const isBanned = await env.SCORS_BANLIST.get(actualDeviceId);
-      if (isBanned) {
+      if (isBanned !== null) {
         return new Response(
-          JSON.stringify({ error: "Access Denied", reason: "Device flagged for SCORS ToS violations." }),
+          JSON.stringify({
+            error: "Access Denied",
+            reason: "Device listed in SCORS ToS banlist.",
+            deviceId: actualDeviceId
+          }),
           { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
       }
     }
 
-    // Prepare Outbound Fetch Headers
+    // 4. Outbound Proxy Headers Configuration
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
