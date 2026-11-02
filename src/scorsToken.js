@@ -1,3 +1,5 @@
+// src/scorsToken.js
+
 const QWERTY_MID = ["a", "s", "d", "f", "g", "h", "j", "k", "l"];
 
 const ZERO_SYMBOLS = [
@@ -7,6 +9,10 @@ const ZERO_SYMBOLS = [
   "Ω", "Ψ", "Σ", "Δ", "Θ", "Ξ", "Π", "Φ", "ω", "ψ", "σ", "δ", "θ", "ξ", "π", "φ"
 ];
 
+/**
+ * Extracts Chrome major version integer from User-Agent string.
+ * Defaults to 100 if Chrome header is absent.
+ */
 function parseChromeVersion(userAgentStr) {
   const match = (userAgentStr || "").match(/Chrome\/(\d+)/i);
   return match ? parseInt(match[1], 10) : 100;
@@ -119,7 +125,8 @@ function parseMacAddress(macStr) {
     }
     return { octets, fullBigInt: BigInt("0x" + hexOnly) };
   }
-  return { octets: [0, 0, 0, 0, 0, 0], fullBigInt: 1n };
+  // Safe default octets (prevents empty array Math.min and zero-division errors)
+  return { octets: [1, 1, 1, 1, 1, 1], fullBigInt: 0x010101010101n };
 }
 
 /**
@@ -161,17 +168,27 @@ export function generateScorsDeviceId(publicIpStr, localIpStr, macAddrStr = "", 
 
     const minPub = u.filter((x) => x > 1n).reduce((min, cur) => (cur < min ? cur : min), 2n);
     const minLoc = v.filter((x) => x > 1n).reduce((min, cur) => (cur < min ? cur : min), 2n);
-    const minMac = BigInt(Math.min(...mOctets.filter((x) => x > 1)) || 2);
+
+    // FIX: Safely check for MAC octets > 1 to prevent BigInt(Infinity) RangeError
+    const validMacOctets = mOctets.filter((x) => x > 1);
+    const minMac = validMacOctets.length > 0 ? BigInt(Math.min(...validMacOctets)) : 2n;
 
     const uaSum = BigInt([...userAgentStr].reduce((acc, ch) => acc + ch.charCodeAt(0), 0));
     const exponent = (minPub % 30n) + (minLoc % 30n) + (minMac % 30n) + (uaSum % 13n) + 1n;
 
     const divisor = o ** exponent;
-    let p = oldVal / divisor;
+    let p = divisor > 0n ? oldVal / divisor : oldVal;
+    if (p === 0n) p = 12345678901234567890n;
 
     // 4. Work-Factor Stretching Loop (200 steps)
+    const moduloBase = 10n ** 200n;
     for (let step = 1n; step <= 200n; step++) {
-      p = ((p ^ (p >> 2n)) + step) % (10n ** 200n);
+      p = ((p ^ (p >> 2n)) + step) % moduloBase;
+    }
+
+    // Ensure output stays large after modulo operations
+    if (p < 10n ** 190n) {
+      p = p + (10n ** 199n);
     }
 
     // 5. Shift QWERTY alphabet based on IP + MAC Octet Sum
@@ -182,7 +199,8 @@ export function generateScorsDeviceId(publicIpStr, localIpStr, macAddrStr = "", 
     // 6. Encode with Deterministic Zero Substitution
     return encodeQwertyToken(p, shiftVal, publicIpVal, chromeVersion);
   } catch (err) {
-    return encodeQwertyToken(1234567890n, 0, 1n, 100);
+    // High-entropy deterministic fallback in case of unexpected context errors
+    return encodeQwertyToken(9876543210987654321098765432109876543210n, 3, 1n, 100);
   }
 }
 
