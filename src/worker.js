@@ -1,13 +1,19 @@
+// src/worker.js
 import { handleScorsRequest } from "./scorsCore.js";
 
 export default {
   async fetch(request, env, ctx) {
-    const response = await handleScorsRequest(request);
-    
-    if (response) {
-      return response;
+    const scorsResponse = await handleScorsRequest(request, env);
+    if (scorsResponse) {
+      return scorsResponse;
     }
 
-    return new Response("Not Found", { status: 404 });
+    return new Response(
+      "SCORS Stateless Edge Proxy Engine Active. Endpoint: /scors?url=[https://example.com](https://example.com)",
+      {
+        status: 200,
+        headers: { "Content-Type": "text/plain" },
+      }
+    );
   },
 };
