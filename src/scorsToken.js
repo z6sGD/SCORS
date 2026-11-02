@@ -9,18 +9,11 @@ const ZERO_SYMBOLS = [
   "Ω", "Ψ", "Σ", "Δ", "Θ", "Ξ", "Π", "Φ", "ω", "ψ", "σ", "δ", "θ", "ξ", "π", "φ"
 ];
 
-/**
- * Extracts Chrome major version integer from User-Agent string.
- * Defaults to 100 if Chrome header is absent.
- */
 function parseChromeVersion(userAgentStr) {
   const match = (userAgentStr || "").match(/Chrome\/(\d+)/i);
   return match ? parseInt(match[1], 10) : 100;
 }
 
-/**
- * Deterministically computes zero symbol using (PublicIP_Val ^ ChromeVersion) mod 41
- */
 function getDeterministicZeroSymbol(zeroCountIndex, publicIpVal, chromeVersion) {
   const numSymbols = BigInt(ZERO_SYMBOLS.length);
   const chromeExp = BigInt(chromeVersion);
@@ -125,13 +118,9 @@ function parseMacAddress(macStr) {
     }
     return { octets, fullBigInt: BigInt("0x" + hexOnly) };
   }
-  // Safe default octets (prevents empty array Math.min and zero-division errors)
   return { octets: [1, 1, 1, 1, 1, 1], fullBigInt: 0x010101010101n };
 }
 
-/**
- * Calculates SCORS IPv6-Hardened Unique Device ID
- */
 export function generateScorsDeviceId(publicIpStr, localIpStr, macAddrStr = "", userAgentStr = "") {
   try {
     const u = parseIpTo8Segments(publicIpStr);
@@ -169,7 +158,6 @@ export function generateScorsDeviceId(publicIpStr, localIpStr, macAddrStr = "", 
     const minPub = u.filter((x) => x > 1n).reduce((min, cur) => (cur < min ? cur : min), 2n);
     const minLoc = v.filter((x) => x > 1n).reduce((min, cur) => (cur < min ? cur : min), 2n);
 
-    // FIX: Safely check for MAC octets > 1 to prevent BigInt(Infinity) RangeError
     const validMacOctets = mOctets.filter((x) => x > 1);
     const minMac = validMacOctets.length > 0 ? BigInt(Math.min(...validMacOctets)) : 2n;
 
@@ -186,27 +174,22 @@ export function generateScorsDeviceId(publicIpStr, localIpStr, macAddrStr = "", 
       p = ((p ^ (p >> 2n)) + step) % moduloBase;
     }
 
-    // Ensure output stays large after modulo operations
     if (p < 10n ** 190n) {
       p = p + (10n ** 199n);
     }
 
-    // 5. Shift QWERTY alphabet based on IP + MAC Octet Sum
+    // 5. Shift QWERTY alphabet
     const ipSum = u.reduce((a, b) => a + b, 0n) + v.reduce((a, b) => a + b, 0n);
     const macSum = BigInt(mOctets.reduce((a, b) => a + b, 0));
     const shiftVal = Number((ipSum + macSum) % 9n);
 
-    // 6. Encode with Deterministic Zero Substitution
+    // 6. Encode
     return encodeQwertyToken(p, shiftVal, publicIpVal, chromeVersion);
   } catch (err) {
-    // High-entropy deterministic fallback in case of unexpected context errors
     return encodeQwertyToken(9876543210987654321098765432109876543210n, 3, 1n, 100);
   }
 }
 
-/**
- * Anti-Spoofing Checker: Verifies if a client-supplied token matches ground truth
- */
 export function verifyScorsDeviceId(incomingToken, publicIpStr, localIpStr, macAddrStr = "", userAgentStr = "") {
   if (!incomingToken) return false;
   const expectedToken = generateScorsDeviceId(publicIpStr, localIpStr, macAddrStr, userAgentStr);
