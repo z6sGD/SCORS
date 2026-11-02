@@ -1,0 +1,14 @@
+{
+  "name": "scors-proxy",
+  "version": "1.0.0",
+  "description": "Stateless edge CORS proxy with integrated device fingerprinting and anti-abuse verification.",
+  "main": "src/worker.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
