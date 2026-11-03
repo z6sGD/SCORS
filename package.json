@@ -1,5 +1,5 @@
 {
-  "name": "scors-proxy",
+  "name": "scors",
   "version": "1.0.0",
   "description": "Stateless edge CORS proxy with integrated device fingerprinting and anti-abuse verification.",
   "main": "src/worker.js",
