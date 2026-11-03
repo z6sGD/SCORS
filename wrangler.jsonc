@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "WORKER-NAME",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-04",
+  "observability": {
+    "enabled": true
+  },
+
+  // Add this to your wrangler.jsonc
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "cb6cb2de82b14c0ea8d3ad8e0af0ca8e"
+    }
+  ]
+}
