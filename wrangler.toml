@@ -5,11 +5,6 @@ compatibility_date = "2026-01-03"
 [vars]
 ENVIRONMENT = "production"
 
-# Cloudflare KV Banlist Namespace Binding
-[[kv_namespaces]]
-binding = "SCORS_BANLIST"
-id = "cb6cb2de82b14c0ea8d3ad8e0af0ca8e"
-
 # Optional: Native Edge Rate Limiting (5 requests per 1 second)
 [[unsafe.bindings]]
 name = "RATE_LIMITER"
