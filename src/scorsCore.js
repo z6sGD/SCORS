@@ -45,10 +45,82 @@ export async function handleScorsRequest(request, env) {
     const macAddr = request.headers.get("x-mac-address") || reqUrl.searchParams.get("mac") || "";
     const userAgent = request.headers.get("user-agent") || "";
 
-    // 1. Calculate Ground-Truth Device ID
+    // ------------------------------------------------------------------------
+    // RATE LIMITER 1: IP Burst Protection (> 5 requests/sec -> 30s block)
+    // ------------------------------------------------------------------------
+    if (env && env.SCORS_BANLIST) {
+      const ipBlockKey = `block:ip:${publicIp}`;
+      const isIpBlocked = await env.SCORS_BANLIST.get(ipBlockKey);
+
+      if (isIpBlocked !== null) {
+        return new Response(
+          JSON.stringify({
+            error: "Access Denied",
+            reason: "You have been temporarily blocked from sending requests because you have sent too many requests in one second."
+          }),
+          { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      const currentSecond = Math.floor(Date.now() / 1000);
+      const ipRateKey = `rate:ip:${publicIp}:${currentSecond}`;
+      const currentCountStr = await env.SCORS_BANLIST.get(ipRateKey);
+      const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
+
+      if (currentCount >= 5) {
+        // Blacklist IP for 30 seconds in KV
+        await env.SCORS_BANLIST.put(ipBlockKey, "temp_banned", { expirationTtl: 30 });
+        return new Response(
+          JSON.stringify({
+            error: "Access Denied",
+            reason: "You have been temporarily blocked from sending requests because you have sent too many requests in one second."
+          }),
+          { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      } else {
+        await env.SCORS_BANLIST.put(ipRateKey, (currentCount + 1).toString(), { expirationTtl: 60 });
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // RATE LIMITER 2: Target URL Limiter (1 request / 10 seconds per URL)
+    // ------------------------------------------------------------------------
+    if (env && env.SCORS_BANLIST) {
+      const urlKey = `rate:url:${btoa(targetUrl.href).slice(0, 100)}`;
+      const lastReqTimeStr = await env.SCORS_BANLIST.get(urlKey);
+      const now = Date.now();
+
+      if (lastReqTimeStr) {
+        const lastReqTime = parseInt(lastReqTimeStr, 10);
+        const elapsedMs = now - lastReqTime;
+
+        if (elapsedMs < 10000) {
+          const remainingSeconds = Math.ceil((10000 - elapsedMs) / 1000);
+          return new Response(
+            JSON.stringify({
+              error: "Too Many Requests",
+              reason: `You have been sending too many requests, try again in ${remainingSeconds} seconds.`
+            }),
+            {
+              status: 429,
+              headers: {
+                "Content-Type": "application/json",
+                "Retry-After": remainingSeconds.toString(),
+                ...corsHeaders,
+              },
+            }
+          );
+        }
+      }
+
+      await env.SCORS_BANLIST.put(urlKey, now.toString(), { expirationTtl: 10 });
+    }
+
+    // ------------------------------------------------------------------------
+    // Device Identification & Access Control Check
+    // ------------------------------------------------------------------------
     const actualDeviceId = generateScorsDeviceId(publicIp, localIp, macAddr, userAgent);
 
-    // 2. Anti-Spoofing Verification Check
     const clientProvidedToken = request.headers.get("SCORS-Unique-Device-ID");
     if (clientProvidedToken && clientProvidedToken !== actualDeviceId) {
       return new Response(
@@ -57,7 +129,6 @@ export async function handleScorsRequest(request, env) {
       );
     }
 
-    // 3. Edge KV Banlist Check
     if (env && env.SCORS_BANLIST) {
       const isBanned = await env.SCORS_BANLIST.get(actualDeviceId);
       if (isBanned !== null) {
@@ -65,14 +136,14 @@ export async function handleScorsRequest(request, env) {
           JSON.stringify({
             error: "Access Denied",
             reason: "Device listed in SCORS ToS banlist.",
-            deviceId: actualDeviceId
+            deviceId: actualDeviceId,
           }),
           { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
       }
     }
 
-    // 4. Outbound Proxy Headers Configuration
+    // Proceeding to proxy request...
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
