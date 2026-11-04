@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Last Updated: November 2, 2026**
+**Last Updated: November 4, 2026**
 
 Welcome to **SCORS CORS Proxy** ("the Service"). By accessing or using our primary endpoint (`scors.scriptcraft.workers.dev`) or backup endpoint (`scorsbackup.pages.dev`), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, do not use the Service.
 
@@ -57,6 +57,10 @@ In no event shall the operators, maintainers, or hosting providers of SCORS be l
 We reserve the right to update these Terms at any time. Continued use of the Service following posted modifications constitutes your acceptance of the updated Terms.
 
 ---
+
+## 7. Usage Limits
+
+We, SCORS, can deny service to anyone who sends too many requests at a time. This is to ensure our service can be used by everyone at any time.
 
 ---
 
