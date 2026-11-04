@@ -1,17 +1,23 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "scors",
+  "name": "scors-proxy",
   "main": "src/index.ts",
-  "compatibility_date": "2026-01-03",
+  "compatibility_date": "2026-01-01",
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
   "observability": {
     "enabled": true
   },
-
-  // Add this to your wrangler.jsonc
   "kv_namespaces": [
     {
-      "binding": "KV",
+      "binding": "SCORS_BANLIST",
       "id": "cb6cb2de82b14c0ea8d3ad8e0af0ca8e"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": [
+      "0 1,5,9,13,17,21 * * *"
+    ]
+  }
 }
