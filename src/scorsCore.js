@@ -2,7 +2,7 @@
 import { generateScorsDeviceId } from "./scorsToken.js";
 
 export async function syncBanlistFromGithub(env) {
-  const GITHUB_BANLIST_URL = "../banlist.json";
+  const GITHUB_BANLIST_URL = "https://raw.githubusercontent.com/z6sGD/SCORS/refs/heads/main/banlist.json";
 
   try {
     const res = await fetch(GITHUB_BANLIST_URL);
