@@ -66,7 +66,7 @@ We, SCORS, can deny service to anyone who sends too many requests at a time. Thi
 
 # Privacy Policy
 
-**Last Updated: November 2, 2026**
+**Last Updated: November 4, 2026**
 
 This Privacy Policy explains how **SCORS CORS Proxy** ("we," "us," or "the Service") processes network traffic and request data when you utilize our proxy endpoints.
 
@@ -75,6 +75,10 @@ This Privacy Policy explains how **SCORS CORS Proxy** ("we," "us," or "the Servi
 ## 1. Core Commitment: 100% Stateless Architecture
 
 SCORS is engineered from the ground up as a **stateless, keyless edge utility**. We do not operate databases to log user browsing history, raw IP addresses, or payload content.
+
+### 1.1. Exception
+
+The only exception to this is that if you get your SCORS ID/IP address reported to us, we have the full rights to list it publicly in the ban list viewable to everyone.
 
 ---
 
