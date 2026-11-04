@@ -6,5 +6,9 @@
   {
     "id": "192.0.2.45",
     "reason": "Suspicious request patterns detected by network security."
+  },
+  {
+    "id": "172.86.66.101",
+    "reason": "This IP address has been blocked by the SCORS team for suspicious activity (Sending 40,000 requests in the span of 2 hours)."
   }
 ]
