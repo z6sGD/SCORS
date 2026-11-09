@@ -2,6 +2,7 @@ import { handleScorsRequest, syncBanlistFromGithub } from "./scorsCore.js";
 
 export interface Env {
   SCORS_BANLIST: KVNamespace;
+  ADMIN_SECRET?: string;
   RATE_LIMITER?: any;
 }
 
