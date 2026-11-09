@@ -5,6 +5,10 @@ const GITHUB_BANLIST_URL = "../banlist.json";
 
 export async function syncBanlistFromGithub(env) {
   try {
+    if (!env || !env.SCORS_BANLIST) {
+      throw new Error("SCORS_BANLIST KV namespace binding not found.");
+    }
+
     const res = await fetch(GITHUB_BANLIST_URL);
     if (!res.ok) throw new Error(`GitHub fetch failed with status ${res.status}`);
 
@@ -38,7 +42,7 @@ export async function syncBanlistFromGithub(env) {
   }
 }
 
-export async function handleScorsRequest(request, env) {
+export async function handleScorsRequest(request, env = {}) {
   const reqUrl = new URL(request.url);
   const normalizedPath = reqUrl.pathname.toLowerCase().replace(/\/$/, "");
 
@@ -62,7 +66,7 @@ export async function handleScorsRequest(request, env) {
     };
 
     const providedSecret = request.headers.get("X-Admin-Secret") || reqUrl.searchParams.get("secret");
-    if (!env.ADMIN_SECRET || providedSecret !== env.ADMIN_SECRET) {
+    if (!env || !env.ADMIN_SECRET || providedSecret !== env.ADMIN_SECRET) {
       return new Response(JSON.stringify({ error: "Unauthorized: Invalid Admin Secret" }), {
         status: 401,
         headers: adminCorsHeaders,
@@ -289,7 +293,7 @@ export async function handleScorsRequest(request, env) {
     // ------------------------------------------------------------------------
     let response;
 
-    if (env.PROXY_HOST && env.PROXY_PORT) {
+    if (env && env.PROXY_HOST && env.PROXY_PORT) {
       const proxyConfig = {
         host: env.PROXY_HOST,
         port: parseInt(env.PROXY_PORT, 10),
