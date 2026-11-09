@@ -3,6 +3,10 @@ import { handleScorsRequest, syncBanlistFromGithub } from "./scorsCore.js";
 export interface Env {
   SCORS_BANLIST: KVNamespace;
   ADMIN_SECRET?: string;
+  PROXY_HOST?: string;
+  PROXY_PORT?: string;
+  PROXY_USER?: string;
+  PROXY_PASS?: string;
   RATE_LIMITER?: any;
 }
 
