@@ -274,15 +274,38 @@ export async function handleScorsRequest(request, env = {}) {
       }
     }
 
-    // Header Adjustments for Outbound Proxying
+    // ------------------------------------------------------------------------
+    // Full Browser Header Forwarding & Normalization (Solution 3)
+    // ------------------------------------------------------------------------
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
     modifiedHeaders.set("SCORS-Unique-Device-ID", actualDeviceId);
 
-    ["cf-connecting-ip", "cf-ray", "cf-visitor", "content-length", "accept-encoding"].forEach((h) =>
+    // Remove internal Cloudflare Edge headers that leak proxy structure or corrupt payload sizing
+    ["cf-connecting-ip", "cf-ray", "cf-visitor", "cf-worker", "cf-ipcountry", "content-length"].forEach((h) =>
       modifiedHeaders.delete(h)
     );
+
+    // Forward/ensure standard browser headers to minimize bot detection triggers
+    if (!modifiedHeaders.has("User-Agent")) {
+      modifiedHeaders.set("User-Agent", userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    }
+    if (!modifiedHeaders.has("Accept-Language")) {
+      modifiedHeaders.set("Accept-Language", "en-US,en;q=0.9");
+    }
+    if (!modifiedHeaders.has("Accept")) {
+      modifiedHeaders.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
+    }
+    if (!modifiedHeaders.has("Sec-Fetch-Dest")) {
+      modifiedHeaders.set("Sec-Fetch-Dest", "document");
+    }
+    if (!modifiedHeaders.has("Sec-Fetch-Mode")) {
+      modifiedHeaders.set("Sec-Fetch-Mode", "navigate");
+    }
+    if (!modifiedHeaders.has("Sec-Fetch-Site")) {
+      modifiedHeaders.set("Sec-Fetch-Site", "cross-site");
+    }
 
     const fetchOpts = {
       method: request.method,
@@ -319,9 +342,60 @@ export async function handleScorsRequest(request, env = {}) {
 
     const contentType = responseHeaders.get("content-type") || "";
 
-    // Automatic Hyperlink & Asset Proxy Rewriting for HTML responses
+    // ------------------------------------------------------------------------
+    // HTML Transformation Engine (Full Path Form Rewriting - Solution 2)
+    // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
       const rewriter = new HTMLRewriter()
+        .on("head", {
+          element(element) {
+            // Inject client-side monkey-patching script into the browser context
+            element.append(
+              `<script>
+                (function() {
+                  var PROXY_ORIGIN = "${reqUrl.origin}";
+                  var TARGET_FULL = "${targetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
+
+                  // Patch window.fetch for client-side API requests
+                  var originalFetch = window.fetch;
+                  if (originalFetch) {
+                    window.fetch = function(resource, init) {
+                      if (typeof resource === 'string' && !resource.startsWith(PROXY_ORIGIN) && !resource.startsWith('data:')) {
+                        try {
+                          var absUrl = new URL(resource, TARGET_FULL).href;
+                          resource = PROXY_ORIGIN + '/scors?url=' + encodeURIComponent(absUrl);
+                        } catch(e) {}
+                      }
+                      return originalFetch.call(this, resource, init);
+                    };
+                  }
+
+                  // Patch history.pushState and history.replaceState to maintain proxy prefix on SPA navigations
+                  var originalPush = history.pushState;
+                  var originalReplace = history.replaceState;
+                  function fixUrl(u) {
+                    if (!u) return u;
+                    try {
+                      var absUrl = new URL(u, TARGET_FULL).href;
+                      return PROXY_ORIGIN + '/scors?url=' + encodeURIComponent(absUrl);
+                    } catch(e) { return u; }
+                  }
+                  if (originalPush) {
+                    history.pushState = function(state, unused, url) {
+                      return originalPush.call(this, state, unused, fixUrl(url));
+                    };
+                  }
+                  if (originalReplace) {
+                    history.replaceState = function(state, unused, url) {
+                      return originalReplace.call(this, state, unused, fixUrl(url));
+                    };
+                  }
+                })();
+              </script>`,
+              { html: true }
+            );
+          },
+        })
         .on("a[href]", {
           element(element) {
             const href = element.getAttribute("href");
@@ -343,8 +417,9 @@ export async function handleScorsRequest(request, env = {}) {
 
               if (method === "GET") {
                 element.setAttribute("action", `${reqUrl.origin}/scors`);
+                // Use full absoluteUrl.href so endpoint paths like /search are preserved on submission
                 element.append(
-                  `<input type="hidden" name="url" value="${absoluteUrl.origin}${absoluteUrl.pathname}">`,
+                  `<input type="hidden" name="url" value="${absoluteUrl.href}">`,
                   { html: true }
                 );
               } else {
