@@ -3,6 +3,9 @@
   "name": "scors-proxy",
   "main": "src/index.ts",
   "compatibility_date": "2026-01-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "vars": {
     "ENVIRONMENT": "production"
   },
