@@ -1,6 +1,7 @@
 import { generateScorsDeviceId } from "./scorsToken.js";
+import { fetchViaSocketProxy } from "./socketProxy.js";
 
-const GITHUB_BANLIST_URL = "https://raw.githubusercontent.com/z6sGD/SCORS/refs/heads/main/banlist.json";
+const GITHUB_BANLIST_URL = "../banlist.json";
 
 export async function syncBanlistFromGithub(env) {
   try {
@@ -262,7 +263,7 @@ export async function handleScorsRequest(request, env) {
       }
     }
 
-    // Proxy Execution
+    // Header Adjustments for Outbound Proxying
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
@@ -283,7 +284,22 @@ export async function handleScorsRequest(request, env) {
       fetchOpts.duplex = "half";
     }
 
-    const response = await fetch(targetUrl.href, fetchOpts);
+    // ------------------------------------------------------------------------
+    // OUTBOUND EXECUTION (Sockets Residential Proxy vs. Direct Fetch)
+    // ------------------------------------------------------------------------
+    let response;
+
+    if (env.PROXY_HOST && env.PROXY_PORT) {
+      const proxyConfig = {
+        host: env.PROXY_HOST,
+        port: parseInt(env.PROXY_PORT, 10),
+        username: env.PROXY_USER || "",
+        password: env.PROXY_PASS || "",
+      };
+      response = await fetchViaSocketProxy(targetUrl, fetchOpts, proxyConfig);
+    } else {
+      response = await fetch(targetUrl.href, fetchOpts);
+    }
 
     const responseHeaders = new Headers(response.headers);
     Object.entries(corsHeaders).forEach(([k, v]) => responseHeaders.set(k, v));
