@@ -1,9 +1,8 @@
-// src/scorsCore.js
 import { generateScorsDeviceId } from "./scorsToken.js";
 
-export async function syncBanlistFromGithub(env) {
-  const GITHUB_BANLIST_URL = "https://raw.githubusercontent.com/z6sGD/SCORS/refs/heads/main/banlist.json";
+const GITHUB_BANLIST_URL = "https://raw.githubusercontent.com/z6sGD/SCORS/refs/heads/main/banlist.json";
 
+export async function syncBanlistFromGithub(env) {
   try {
     const res = await fetch(GITHUB_BANLIST_URL);
     if (!res.ok) throw new Error(`GitHub fetch failed with status ${res.status}`);
@@ -40,8 +39,67 @@ export async function syncBanlistFromGithub(env) {
 
 export async function handleScorsRequest(request, env) {
   const reqUrl = new URL(request.url);
-
   const normalizedPath = reqUrl.pathname.toLowerCase().replace(/\/$/, "");
+
+  // CORS Preflight for Admin API endpoints
+  if (normalizedPath.startsWith("/scors/admin/api") && request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-Admin-Secret",
+      },
+    });
+  }
+
+  // Admin API Routing (Used by decoupled admin apps)
+  if (normalizedPath.startsWith("/scors/admin/api")) {
+    const adminCorsHeaders = {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    };
+
+    const providedSecret = request.headers.get("X-Admin-Secret") || reqUrl.searchParams.get("secret");
+    if (!env.ADMIN_SECRET || providedSecret !== env.ADMIN_SECRET) {
+      return new Response(JSON.stringify({ error: "Unauthorized: Invalid Admin Secret" }), {
+        status: 401,
+        headers: adminCorsHeaders,
+      });
+    }
+
+    if (normalizedPath === "/scors/admin/api/list" && request.method === "GET") {
+      const list = await env.SCORS_BANLIST.list();
+      const keysWithValues = await Promise.all(
+        list.keys.map(async (k) => {
+          const val = await env.SCORS_BANLIST.get(k.name);
+          return { name: k.name, value: val };
+        })
+      );
+      return new Response(JSON.stringify({ keys: keysWithValues }), { status: 200, headers: adminCorsHeaders });
+    }
+
+    if (normalizedPath === "/scors/admin/api/ban" && request.method === "POST") {
+      const { id, reason } = await request.json();
+      if (!id) return new Response(JSON.stringify({ error: "Missing ID" }), { status: 400, headers: adminCorsHeaders });
+
+      await env.SCORS_BANLIST.put(
+        id,
+        JSON.stringify({ reason: reason || "Manually banned via Admin Panel", bannedAt: new Date().toISOString() })
+      );
+      return new Response(JSON.stringify({ success: true }), { status: 200, headers: adminCorsHeaders });
+    }
+
+    if (normalizedPath === "/scors/admin/api/unban" && request.method === "POST") {
+      const { id } = await request.json();
+      if (!id) return new Response(JSON.stringify({ error: "Missing ID" }), { status: 400, headers: adminCorsHeaders });
+
+      await env.SCORS_BANLIST.delete(id);
+      return new Response(JSON.stringify({ success: true }), { status: 200, headers: adminCorsHeaders });
+    }
+  }
+
+  // Filter non-proxy routes
   if (normalizedPath !== "/scors" && normalizedPath !== "/scors/sync") {
     return null;
   }
@@ -57,7 +115,7 @@ export async function handleScorsRequest(request, env) {
   if (origin !== "*") corsHeaders["Access-Control-Allow-Credentials"] = "true";
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
 
-  // Endpoint to manually trigger GitHub Sync
+  // Explicit GitHub Banlist Sync Endpoint
   if (normalizedPath === "/scors/sync") {
     const syncResult = await syncBanlistFromGithub(env);
     return new Response(JSON.stringify(syncResult), {
@@ -85,14 +143,13 @@ export async function handleScorsRequest(request, env) {
       return new Response(JSON.stringify({ error: "Forbidden target host" }), { status: 403, headers: corsHeaders });
     }
 
-    // Context Extraction
     const publicIp = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "127.0.0.1";
     const localIp = request.headers.get("x-local-ip") || reqUrl.searchParams.get("local_ip") || "10.0.0.1";
     const macAddr = request.headers.get("x-mac-address") || reqUrl.searchParams.get("mac") || "";
     const userAgent = request.headers.get("user-agent") || "";
 
     // ------------------------------------------------------------------------
-    // RATE LIMITER 1: IP Burst Protection (> 5 requests/sec -> 30s block)
+    // RATE LIMITER 1: IP Burst Protection (5 req/sec -> 30s temp block)
     // ------------------------------------------------------------------------
     if (env && env.SCORS_BANLIST) {
       const now = Date.now();
@@ -132,7 +189,7 @@ export async function handleScorsRequest(request, env) {
     }
 
     // ------------------------------------------------------------------------
-    // RATE LIMITER 2: Target URL Limiter (1 request / 10 seconds per URL)
+    // RATE LIMITER 2: Target URL Limiter (1 req / 10 sec per target URL)
     // ------------------------------------------------------------------------
     if (env && env.SCORS_BANLIST) {
       const now = Date.now();
@@ -166,7 +223,7 @@ export async function handleScorsRequest(request, env) {
     }
 
     // ------------------------------------------------------------------------
-    // Device Identification & Dynamic Ban Checks with Custom Reasons
+    // Device Fingerprinting & Ban Evaluation
     // ------------------------------------------------------------------------
     const actualDeviceId = generateScorsDeviceId(publicIp, localIp, macAddr, userAgent);
 
@@ -182,7 +239,7 @@ export async function handleScorsRequest(request, env) {
       const banRecord = await env.SCORS_BANLIST.get(actualDeviceId);
       if (banRecord !== null) {
         let banReason = "Device listed in SCORS ToS banlist.";
-        
+
         try {
           const parsedRecord = JSON.parse(banRecord);
           if (parsedRecord && parsedRecord.reason) {
@@ -205,7 +262,7 @@ export async function handleScorsRequest(request, env) {
       }
     }
 
-    // Proceeding to proxy request...
+    // Proxy Execution
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
@@ -232,6 +289,54 @@ export async function handleScorsRequest(request, env) {
     Object.entries(corsHeaders).forEach(([k, v]) => responseHeaders.set(k, v));
     responseHeaders.delete("X-Frame-Options");
     responseHeaders.delete("Content-Security-Policy");
+
+    const contentType = responseHeaders.get("content-type") || "";
+
+    // Automatic Hyperlink & Asset Proxy Rewriting for HTML responses
+    if (contentType.includes("text/html")) {
+      const rewriter = new HTMLRewriter()
+        .on("a[href]", {
+          element(element) {
+            const href = element.getAttribute("href");
+            if (href && !href.startsWith("javascript:") && !href.startsWith("#") && !href.startsWith("mailto:")) {
+              try {
+                const absoluteUrl = new URL(href, targetUrl.href).href;
+                element.setAttribute("href", `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
+              } catch (_) {}
+            }
+          },
+        })
+        .on("form[action]", {
+          element(element) {
+            const action = element.getAttribute("action");
+            if (action) {
+              try {
+                const absoluteUrl = new URL(action, targetUrl.href).href;
+                element.setAttribute("action", `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
+              } catch (_) {}
+            }
+          },
+        })
+        .on("img[src], script[src], link[href], iframe[src]", {
+          element(element) {
+            const attrName = element.hasAttribute("src") ? "src" : "href";
+            const attrVal = element.getAttribute(attrName);
+            if (attrVal && !attrVal.startsWith("data:")) {
+              try {
+                const absoluteUrl = new URL(attrVal, targetUrl.href).href;
+                element.setAttribute(attrName, `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
+              } catch (_) {}
+            }
+          },
+        });
+
+      return rewriter.transform(
+        new Response(response.body, {
+          status: response.status,
+          headers: responseHeaders,
+        })
+      );
+    }
 
     return new Response(response.body, { status: response.status, headers: responseHeaders });
   } catch (err) {
