@@ -143,6 +143,13 @@ export async function handleScorsRequest(request, env = {}) {
   try {
     const targetUrl = new URL(targetUrlStr);
 
+    // Forward form search parameters (e.g., ?q=query) to the target URL
+    reqUrl.searchParams.forEach((value, key) => {
+      if (!["url", "local_ip", "mac", "secret"].includes(key)) {
+        targetUrl.searchParams.append(key, value);
+      }
+    });
+
     const hostname = targetUrl.hostname.toLowerCase();
     if (["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname) || hostname.endsWith(".local")) {
       return new Response(JSON.stringify({ error: "Forbidden target host" }), { status: 403, headers: corsHeaders });
@@ -326,15 +333,24 @@ export async function handleScorsRequest(request, env = {}) {
             }
           },
         })
-        .on("form[action]", {
+        .on("form", {
           element(element) {
-            const action = element.getAttribute("action");
-            if (action) {
-              try {
-                const absoluteUrl = new URL(action, targetUrl.href).href;
-                element.setAttribute("action", `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
-              } catch (_) {}
-            }
+            const action = element.getAttribute("action") || targetUrl.href;
+            const method = (element.getAttribute("method") || "GET").toUpperCase();
+
+            try {
+              const absoluteUrl = new URL(action, targetUrl.href);
+
+              if (method === "GET") {
+                element.setAttribute("action", `${reqUrl.origin}/scors`);
+                element.append(
+                  `<input type="hidden" name="url" value="${absoluteUrl.origin}${absoluteUrl.pathname}">`,
+                  { html: true }
+                );
+              } else {
+                element.setAttribute("action", `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl.href)}`);
+              }
+            } catch (_) {}
           },
         })
         .on("img[src], script[src], link[href], iframe[src]", {
