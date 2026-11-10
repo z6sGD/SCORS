@@ -130,17 +130,20 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   // ------------------------------------------------------------------------
-  // TARGET URL SELECTION (Support ?ws= and ?url= parameters)
+  // TARGET URL SELECTION (Support ?api=, ?ws=, and ?url= parameters)
   // ------------------------------------------------------------------------
+  const isApiCheckReq = reqUrl.searchParams.has("api");
   const isWebSocketReq = (request.headers.get("Upgrade") || "").toLowerCase() === "websocket";
-  let targetUrlStr = reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
 
-  if (!targetUrlStr) {
+  let targetUrlStr = reqUrl.searchParams.get("api") || reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
+
+  if (!targetUrlStr && !isApiCheckReq) {
     return new Response(
       JSON.stringify({ 
         status: "active", 
         endpoint: "SCORS Proxy API", 
         usage: {
+          apiChecker: `${reqUrl.pathname}?api=https://api.example.com/data`,
           http: `${reqUrl.pathname}?url=https://example.com`,
           websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`
         }
@@ -149,23 +152,28 @@ export async function handleScorsRequest(request, env = {}) {
     );
   }
 
-  targetUrlStr = targetUrlStr.trim();
+  // Default target benchmark for standalone `/scors?api` calls without a specific URL
+  if (isApiCheckReq && (!targetUrlStr || targetUrlStr.trim() === "")) {
+    targetUrlStr = "https://1.1.1.1/cdn-cgi/trace";
+  } else {
+    targetUrlStr = targetUrlStr.trim();
+  }
   
-  // Normalize WebSocket protocols for edge fetch compatibility
+  // Normalize WebSocket & HTTP protocols
   if (targetUrlStr.startsWith("ws://")) {
     targetUrlStr = targetUrlStr.replace(/^ws:\/\//i, "http://");
   } else if (targetUrlStr.startsWith("wss://")) {
     targetUrlStr = targetUrlStr.replace(/^wss:\/\//i, "https://");
   } else if (!/^https?:\/\//i.test(targetUrlStr)) {
-    targetUrlStr = (isWebSocketReq ? "https://" : "https://") + targetUrlStr;
+    targetUrlStr = "https://" + targetUrlStr;
   }
 
   try {
     const targetUrl = new URL(targetUrlStr);
 
-    // Forward form search parameters (e.g., ?q=query) to the target URL
+    // Forward query parameters to the target URL
     reqUrl.searchParams.forEach((value, key) => {
-      if (!["url", "ws", "local_ip", "mac", "secret"].includes(key)) {
+      if (!["url", "ws", "api", "local_ip", "mac", "secret"].includes(key)) {
         targetUrl.searchParams.append(key, value);
       }
     });
@@ -223,7 +231,7 @@ export async function handleScorsRequest(request, env = {}) {
     // ------------------------------------------------------------------------
     // RATE LIMITER 2: Target URL Limiter (1 req / 10 sec per target URL)
     // ------------------------------------------------------------------------
-    if (env && env.SCORS_BANLIST) {
+    if (env && env.SCORS_BANLIST && !isApiCheckReq) {
       const now = Date.now();
       const safeUrlKey = `rate:url:${btoa(targetUrl.href).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100)}`;
       const lastReqTimeStr = await env.SCORS_BANLIST.get(safeUrlKey);
@@ -295,14 +303,15 @@ export async function handleScorsRequest(request, env = {}) {
     }
 
     // ------------------------------------------------------------------------
-    // Full Browser Header Forwarding & Normalization
+    // Header Normalization & Cookie Stripping (Stateless Engine)
     // ------------------------------------------------------------------------
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
     modifiedHeaders.set("SCORS-Unique-Device-ID", actualDeviceId);
 
-    ["cf-connecting-ip", "cf-ray", "cf-visitor", "cf-worker", "cf-ipcountry", "content-length"].forEach((h) =>
+    // Strip internal Cloudflare edge tracking and browser cookies to maintain stateless proxying
+    ["cf-connecting-ip", "cf-ray", "cf-visitor", "cf-worker", "cf-ipcountry", "content-length", "cookie"].forEach((h) =>
       modifiedHeaders.delete(h)
     );
 
@@ -319,6 +328,47 @@ export async function handleScorsRequest(request, env = {}) {
     if (!["GET", "HEAD"].includes(request.method) && request.body) {
       fetchOpts.body = request.body;
       fetchOpts.duplex = "half";
+    }
+
+    // ------------------------------------------------------------------------
+    // API CHECKER ROUTE (?api or ?api=https://...)
+    // ------------------------------------------------------------------------
+    if (isApiCheckReq) {
+      const startTime = performance.now();
+      let responseStatusCode = 500;
+      let isOk = false;
+      let errorMsg = null;
+
+      try {
+        const pingResponse = await fetch(targetUrl.href, {
+          method: "GET",
+          headers: modifiedHeaders,
+        });
+        responseStatusCode = pingResponse.status;
+        isOk = pingResponse.ok;
+      } catch (err) {
+        errorMsg = err.message;
+      }
+
+      const responseTimeMs = Math.round(performance.now() - startTime);
+
+      return new Response(
+        JSON.stringify({
+          status: responseStatusCode,
+          responseTimeMs: responseTimeMs,
+          deviceId: actualDeviceId,
+          target: targetUrl.href,
+          ok: isOk,
+          ...(errorMsg ? { error: errorMsg } : {})
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
     // ------------------------------------------------------------------------
@@ -353,7 +403,7 @@ export async function handleScorsRequest(request, env = {}) {
     const contentType = responseHeaders.get("content-type") || "";
 
     // ------------------------------------------------------------------------
-    // HTML Transformation Engine (Rewrites HTML & Injects WebSocket JS Patch)
+    // HTML Transformation Engine
     // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
       const rewriter = new HTMLRewriter()
@@ -365,7 +415,7 @@ export async function handleScorsRequest(request, env = {}) {
                   var PROXY_ORIGIN = "${reqUrl.origin}";
                   var TARGET_FULL = "${targetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
 
-                  // Patch window.WebSocket to automatically proxy client WS connections
+                  // Patch window.WebSocket
                   var NativeWebSocket = window.WebSocket;
                   if (NativeWebSocket) {
                     window.WebSocket = function(url, protocols) {
@@ -380,7 +430,7 @@ export async function handleScorsRequest(request, env = {}) {
                     window.WebSocket.prototype = NativeWebSocket.prototype;
                   }
 
-                  // Patch window.fetch for client-side API requests
+                  // Patch window.fetch
                   var originalFetch = window.fetch;
                   if (originalFetch) {
                     window.fetch = function(resource, init) {
