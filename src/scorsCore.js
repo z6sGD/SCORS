@@ -183,7 +183,6 @@ export async function handleScorsRequest(request, env = {}) {
   if (isApiCheckReq) {
     const startTime = performance.now();
 
-    // Verify internal state & KV database responsiveness
     let kvStatus = "disabled";
     if (env && env.SCORS_BANLIST) {
       try {
@@ -398,17 +397,28 @@ export async function handleScorsRequest(request, env = {}) {
     const contentType = responseHeaders.get("content-type") || "";
 
     // ------------------------------------------------------------------------
-    // HTML Transformation Engine
+    // HTML Transformation Engine (Rewrites Favicons, HTML & Injects JS Patches)
     // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
       const rewriter = new HTMLRewriter()
         .on("head", {
           element(element) {
             element.append(
-              `<script>
+              `<link rel="icon" type="image/x-icon" href="${reqUrl.origin}/favicon.ico">
+              <link rel="shortcut icon" href="${reqUrl.origin}/favicon.ico">
+              <script>
                 (function() {
                   var PROXY_ORIGIN = "${reqUrl.origin}";
                   var TARGET_FULL = "${targetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
+
+                  // Override dynamic favicon updates in DOM
+                  var origSetAttr = Element.prototype.setAttribute;
+                  Element.prototype.setAttribute = function(name, val) {
+                    if (this.tagName === 'LINK' && (this.getAttribute('rel') || '').toLowerCase().indexOf('icon') !== -1 && name.toLowerCase() === 'href') {
+                      val = PROXY_ORIGIN + '/favicon.ico';
+                    }
+                    return origSetAttr.call(this, name, val);
+                  };
 
                   // Patch window.WebSocket
                   var NativeWebSocket = window.WebSocket;
@@ -501,10 +511,16 @@ export async function handleScorsRequest(request, env = {}) {
             const attrName = element.hasAttribute("src") ? "src" : "href";
             const attrVal = element.getAttribute(attrName);
             if (attrVal && !attrVal.startsWith("data:")) {
-              try {
-                const absoluteUrl = new URL(attrVal, targetUrl.href).href;
-                element.setAttribute(attrName, `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
-              } catch (_) {}
+              const rel = (element.getAttribute("rel") || "").toLowerCase();
+              // Direct all target site favicon requests to proxy root favicon.ico
+              if (element.tagName === "link" && rel.includes("icon")) {
+                element.setAttribute("href", `${reqUrl.origin}/favicon.ico`);
+              } else {
+                try {
+                  const absoluteUrl = new URL(attrVal, targetUrl.href).href;
+                  element.setAttribute(attrName, `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
+                } catch (_) {}
+              }
             }
           },
         });
