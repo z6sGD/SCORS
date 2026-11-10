@@ -129,21 +129,107 @@ export async function handleScorsRequest(request, env = {}) {
     });
   }
 
-  // ------------------------------------------------------------------------
-  // TARGET URL SELECTION (Support ?api=, ?ws=, and ?url= parameters)
-  // ------------------------------------------------------------------------
   const isApiCheckReq = reqUrl.searchParams.has("api");
   const isWebSocketReq = (request.headers.get("Upgrade") || "").toLowerCase() === "websocket";
 
-  let targetUrlStr = reqUrl.searchParams.get("api") || reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
+  // ------------------------------------------------------------------------
+  // Device Fingerprinting & Ban Evaluation
+  // ------------------------------------------------------------------------
+  const publicIp = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "127.0.0.1";
+  const localIp = request.headers.get("x-local-ip") || reqUrl.searchParams.get("local_ip") || "10.0.0.1";
+  const macAddr = request.headers.get("x-mac-address") || reqUrl.searchParams.get("mac") || "";
+  const userAgent = request.headers.get("user-agent") || "";
 
-  if (!targetUrlStr && !isApiCheckReq) {
+  const actualDeviceId = generateScorsDeviceId(publicIp, localIp, macAddr, userAgent);
+
+  const clientProvidedToken = request.headers.get("SCORS-Unique-Device-ID");
+  if (clientProvidedToken && clientProvidedToken !== actualDeviceId) {
+    return new Response(
+      JSON.stringify({ error: "Security Exception", message: "Spoofed SCORS Device ID detected." }),
+      { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    );
+  }
+
+  if (env && env.SCORS_BANLIST) {
+    const banRecord = await env.SCORS_BANLIST.get(actualDeviceId);
+    if (banRecord !== null) {
+      let banReason = "Device listed in SCORS ToS banlist.";
+
+      try {
+        const parsedRecord = JSON.parse(banRecord);
+        if (parsedRecord && parsedRecord.reason) {
+          banReason = parsedRecord.reason;
+        }
+      } catch (_) {
+        if (typeof banRecord === "string" && banRecord.length > 0 && !banRecord.startsWith("{")) {
+          banReason = banRecord;
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          error: "Access Denied",
+          reason: banReason,
+          deviceId: actualDeviceId,
+        }),
+        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // SELF HEALTH / API CHECK ROUTE (/scors?api)
+  // ------------------------------------------------------------------------
+  if (isApiCheckReq) {
+    const startTime = performance.now();
+
+    // Verify internal state & KV database responsiveness
+    let kvStatus = "disabled";
+    if (env && env.SCORS_BANLIST) {
+      try {
+        await env.SCORS_BANLIST.get("healthcheck_ping");
+        kvStatus = "operational";
+      } catch (_) {
+        kvStatus = "degraded";
+      }
+    }
+
+    const responseTimeMs = Math.round((performance.now() - startTime) * 100) / 100;
+
+    return new Response(
+      JSON.stringify({
+        status: 200,
+        service: "SCORS Proxy API",
+        state: "operational",
+        responseTimeMs: responseTimeMs,
+        deviceId: actualDeviceId,
+        kvStatus: kvStatus,
+        outboundRouting: (env && env.PROXY_HOST) ? "residential_socket_tunnel" : "direct_edge_fetch",
+        timestamp: new Date().toISOString()
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+          ...corsHeaders,
+        },
+      }
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // TARGET URL SELECTION (Support ?ws= and ?url= parameters)
+  // ------------------------------------------------------------------------
+  let targetUrlStr = reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
+
+  if (!targetUrlStr) {
     return new Response(
       JSON.stringify({ 
         status: "active", 
         endpoint: "SCORS Proxy API", 
         usage: {
-          apiChecker: `${reqUrl.pathname}?api=https://api.example.com/data`,
+          apiCheck: `${reqUrl.pathname}?api`,
           http: `${reqUrl.pathname}?url=https://example.com`,
           websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`
         }
@@ -152,12 +238,7 @@ export async function handleScorsRequest(request, env = {}) {
     );
   }
 
-  // Default target benchmark for standalone `/scors?api` calls without a specific URL
-  if (isApiCheckReq && (!targetUrlStr || targetUrlStr.trim() === "")) {
-    targetUrlStr = "https://1.1.1.1/cdn-cgi/trace";
-  } else {
-    targetUrlStr = targetUrlStr.trim();
-  }
+  targetUrlStr = targetUrlStr.trim();
   
   // Normalize WebSocket & HTTP protocols
   if (targetUrlStr.startsWith("ws://")) {
@@ -182,11 +263,6 @@ export async function handleScorsRequest(request, env = {}) {
     if (["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname) || hostname.endsWith(".local")) {
       return new Response(JSON.stringify({ error: "Forbidden target host" }), { status: 403, headers: corsHeaders });
     }
-
-    const publicIp = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "127.0.0.1";
-    const localIp = request.headers.get("x-local-ip") || reqUrl.searchParams.get("local_ip") || "10.0.0.1";
-    const macAddr = request.headers.get("x-mac-address") || reqUrl.searchParams.get("mac") || "";
-    const userAgent = request.headers.get("user-agent") || "";
 
     // ------------------------------------------------------------------------
     // RATE LIMITER 1: IP Burst Protection (5 req/sec -> 30s temp block)
@@ -231,7 +307,7 @@ export async function handleScorsRequest(request, env = {}) {
     // ------------------------------------------------------------------------
     // RATE LIMITER 2: Target URL Limiter (1 req / 10 sec per target URL)
     // ------------------------------------------------------------------------
-    if (env && env.SCORS_BANLIST && !isApiCheckReq) {
+    if (env && env.SCORS_BANLIST) {
       const now = Date.now();
       const safeUrlKey = `rate:url:${btoa(targetUrl.href).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100)}`;
       const lastReqTimeStr = await env.SCORS_BANLIST.get(safeUrlKey);
@@ -263,46 +339,6 @@ export async function handleScorsRequest(request, env = {}) {
     }
 
     // ------------------------------------------------------------------------
-    // Device Fingerprinting & Ban Evaluation
-    // ------------------------------------------------------------------------
-    const actualDeviceId = generateScorsDeviceId(publicIp, localIp, macAddr, userAgent);
-
-    const clientProvidedToken = request.headers.get("SCORS-Unique-Device-ID");
-    if (clientProvidedToken && clientProvidedToken !== actualDeviceId) {
-      return new Response(
-        JSON.stringify({ error: "Security Exception", message: "Spoofed SCORS Device ID detected." }),
-        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
-    }
-
-    if (env && env.SCORS_BANLIST) {
-      const banRecord = await env.SCORS_BANLIST.get(actualDeviceId);
-      if (banRecord !== null) {
-        let banReason = "Device listed in SCORS ToS banlist.";
-
-        try {
-          const parsedRecord = JSON.parse(banRecord);
-          if (parsedRecord && parsedRecord.reason) {
-            banReason = parsedRecord.reason;
-          }
-        } catch (_) {
-          if (typeof banRecord === "string" && banRecord.length > 0 && !banRecord.startsWith("{")) {
-            banReason = banRecord;
-          }
-        }
-
-        return new Response(
-          JSON.stringify({
-            error: "Access Denied",
-            reason: banReason,
-            deviceId: actualDeviceId,
-          }),
-          { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
-        );
-      }
-    }
-
-    // ------------------------------------------------------------------------
     // Header Normalization & Cookie Stripping (Stateless Engine)
     // ------------------------------------------------------------------------
     const modifiedHeaders = new Headers(request.headers);
@@ -328,47 +364,6 @@ export async function handleScorsRequest(request, env = {}) {
     if (!["GET", "HEAD"].includes(request.method) && request.body) {
       fetchOpts.body = request.body;
       fetchOpts.duplex = "half";
-    }
-
-    // ------------------------------------------------------------------------
-    // API CHECKER ROUTE (?api or ?api=https://...)
-    // ------------------------------------------------------------------------
-    if (isApiCheckReq) {
-      const startTime = performance.now();
-      let responseStatusCode = 500;
-      let isOk = false;
-      let errorMsg = null;
-
-      try {
-        const pingResponse = await fetch(targetUrl.href, {
-          method: "GET",
-          headers: modifiedHeaders,
-        });
-        responseStatusCode = pingResponse.status;
-        isOk = pingResponse.ok;
-      } catch (err) {
-        errorMsg = err.message;
-      }
-
-      const responseTimeMs = Math.round(performance.now() - startTime);
-
-      return new Response(
-        JSON.stringify({
-          status: responseStatusCode,
-          responseTimeMs: responseTimeMs,
-          deviceId: actualDeviceId,
-          target: targetUrl.href,
-          ok: isOk,
-          ...(errorMsg ? { error: errorMsg } : {})
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            ...corsHeaders,
-          },
-        }
-      );
     }
 
     // ------------------------------------------------------------------------
