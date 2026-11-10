@@ -1,4 +1,4 @@
-# SCORS Proxy Engine
+# <div align="center"><img src="logo.png" />[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/z6sGD/SCORS) [![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/z6sGD/SCORS) [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/z6sGD/SCORS) [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/z6sGD/SCORS)</div>
 
 A free, high-performance, edge-accelerated CORS & protocol proxy powered by Cloudflare Workers and Cloudflare Pages. Built with an integrated stateless device fingerprinting engine, dynamic HTML/JS path rewriting, outbound socket tunneling, and full WebSocket forwarding, SCORS enables seamless cross-origin web development while protecting target endpoints from abuse.
 
