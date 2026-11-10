@@ -1,345 +1,219 @@
-# SCORS CORS Proxy
+# SCORS Proxy Engine
 
-
-
-A free, high-performance, edge-accelerated CORS proxy powered by Cloudflare Workers and Cloudflare Pages. Built with an integrated stateless device fingerprinting engine, SCORS protects target endpoints from abuse while enabling seamless cross-origin web development.
-
-
+A free, high-performance, edge-accelerated CORS & protocol proxy powered by Cloudflare Workers and Cloudflare Pages. Built with an integrated stateless device fingerprinting engine, dynamic HTML/JS path rewriting, outbound socket tunneling, and full WebSocket forwarding, SCORS enables seamless cross-origin web development while protecting target endpoints from abuse.
 
 ---
 
 ### What does SCORS stand for?
 
-SCORS stands for Script Craft/Cross-Origin Resource Sharing.
+SCORS stands for **Script Craft / Cross-Origin Resource Sharing**.
 
 ---
 
-
-
 ## 🚀 Quickstart & Endpoints
 
+To bypass CORS restrictions or stream WebSocket traffic in your web applications, append the target URL or WebSocket server to the official proxy endpoints:
 
-
-To bypass CORS restrictions in your web applications, simply append the target URL to either of the official proxy endpoints:
-
-
-
-### Primary Endpoint
+### HTTP / HTTPS Proxying
 
 ```text
-
-https://scors.scriptcraft.workers.dev/SCORS?url=https://your-target-website.com
+https://scors.scriptcraft.workers.dev/scors?url=https://your-target-website.com
 
 ```
 
+### WebSocket Streaming
 
+```text
+wss://scors.scriptcraft.workers.dev/scors?ws=wss://echo.websocket.events
+
+```
 
 ### Backup Endpoint (Cloudflare Pages)
 
 ```text
-
-https://scorsbackup.pages.dev/SCORS?url=https://your-target-website.com
+https://scorsbackup.pages.dev/scors?url=https://your-target-website.com
 
 ```
 
+---
 
+## ✨ Key Features & Capability Matrix
+
+* **Full CORS & CSP Elimination**: Automatically strips restrictive headers (`X-Frame-Options`, `Content-Security-Policy`) and injects permissive `Access-Control-Allow-*` headers.
+* **WebSocket Proxying (`?ws=`)**: Seamlessly handles HTTP `101 Switching Protocols` handshakes and bidirectionally streams WebSocket frames for real-time applications.
+* **Outbound Residential Socket Tunneling**: Integrates with `cloudflare:sockets` to route traffic through external residential proxy gateways (`HTTP CONNECT`), bypassing datacenter IP flagging on strict search engines.
+* **Single-Page Application (SPA) Patching**: Injects a lightweight client-side script into `<head>` to monkey-patch `window.fetch`, `history.pushState`, `history.replaceState`, and `window.WebSocket` so client-side navigation stays on the proxy origin.
+* **HTML & Form Rewriting**: Uses `HTMLRewriter` to normalize GET/POST forms, asset sources (`img`, `script`, `link`), and hyperlinks (`a[href]`) on the fly.
+* **Multi-Tier Abuse Prevention**: Built-in dual-layer rate limiting (5 req/sec burst protection per IP and 1 req/10s per target URL) along with stateless hardware fingerprinting.
+* **Banlist Management**: Automated synchronization with GitHub banlists (`/scors/sync`) and an authenticated REST API (`/scors/admin/api/*`) backed by Cloudflare KV.
 
 ---
 
+## ⚠️ Known Technical Limitations
 
-
-## ⚠️ Important Limitations
-
-
-
-> ### **NOT EVERY WEBSITE IS SUPPORTED**
-
+> * **Domain-Bound Captchas (Cloudflare Turnstile / reCAPTCHA):** Challenge widgets verify `window.location.hostname`. When loaded through a proxy domain, site key mismatches will cause widgets to fail validation unless routed through non-widget interfaces (e.g., `html.duckduckgo.com`).
+> * **Datacenter IP Filtering:** Browsing strict target endpoints without configured socket proxy secrets (`PROXY_HOST`) routes traffic from Cloudflare edge IPs, which may trigger automated bot challenges.
+> * **Complex Authenticated Sessions:** Cross-domain OAuth flows relying on `SameSite=Strict` HTTP-only cookies may require client-side credential adjustments.
+> 
 > 
 
-> * **Cloudflare / Bot-Protection Blockades:** Websites protected by Cloudflare Turnstile, "Under Attack Mode," custom Captchas, or strict bot-mitigation frameworks will reject requests routed through public edge worker IP ranges.
-
-> * **Authenticated Sessions:** Websites requiring complex, domain-scoped HTTP cookies or stateful OAuth flows may not operate correctly through standard pass-through proxying.
-
-> * **WebSocket Connections:** This proxy is designed for HTTP/HTTPS requests (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD`). WebSockets (`ws://`, `wss://`) are not supported.
-
-
-
 ---
-
-
 
 ## ⚡ How SCORS Differs From Standard CORS Proxies
 
+Standard public CORS proxies (e.g., `cors-anywhere`) operate as basic header pass-through services without payload transformation or intelligent request management.
 
-
-Most public CORS proxies (such as `cors-anywhere` or generic proxy workers) act as simple, unverified pass-through tools. They append `Access-Control-Allow-Origin: *` headers to outgoing responses without inspecting or securing the request pipeline. 
-
-
-
-Because standard proxies lack abuse prevention, they are frequently targeted by malicious scrapers, abused for DDoS attacks, and quickly banned by major APIs and Cloudflare's network.
-
-
-
-**SCORS solves this problem at the architectural level:**
-
-
+```text
+[ Client Browser ] ---> [ SCORS Edge Worker Engine ] ---> [ Residential Sockets / Target API ]
+                         │
+                         ├─► Injected Client Script (window.fetch / WebSocket / history)
+                         ├─► HTMLRewriter (GET/POST Form Fixes & Asset Paths)
+                         ├─► Dual Rate Limiter (IP Burst & Target URL Cooldown)
+                         └─► Stateless Hardware Signature & KV Banlist Validation
 
 ```
 
-[ Client Browser ] ---> [ SCORS Edge Worker Proxy ] ---> [ Target Web API ]
+### Feature Comparison
 
-                                │
-
-               ┌────────────────┴────────────────┐
-
-               │  Stateless Hardware Signature   │
-
-               │  Anti-Spoofing Verification     │
-
-               │  Cloudflare KV Banlist Intercept│
-
-               └─────────────────────────────────┘
-
-```
-
-
-
-### Key Differences & Technical Advantages
-
-
-
-| Feature | Standard Public Proxies (e.g., `cors-anywhere`) | SCORS CORS Proxy Engine |
+| Feature | Standard Public Proxies | SCORS Proxy Engine |
+| --- | --- | --- |
+| **Protocol Support** | HTTP / HTTPS only | **HTTP, HTTPS, and WebSockets (`ws://`, `wss://`)** |
+| **Abuse Mitigation** | Basic IP rate limits (easily bypassed via VPN) | **Hardware & IPv6 subnet fingerprinting + IP burst blockades** |
+| **Single-Page App (SPA) Support** | Breaks on client-side JS routing | **Monkey-patches `fetch`, `history`, and `WebSocket` in-browser** |
+| **Form Submissions** | GET parameters dropped on form submit | **Injects hidden inputs to maintain full URL/path context** |
+| **Outbound IP Routing** | Cloudflare / Server Datacenter IPs only | **Supports `cloudflare:sockets` raw TCP/TLS proxy tunneling** |
+| **Header Normalization** | Raw passthrough | **Injects standard browser Sec-Fetch & User-Agent signatures** |
 
 ---
-
-| **Abuse Mitigation** | Basic IP rate-limiting (easily bypassed via VPN/proxies). | Hardware & IPv6 subnet-bound fingerprinting that survives IP-hopping. |
-
-| **Privacy Protection** | Often logs full client IP addresses, headers, and payloads in central servers. | 
-
-| **100% Stateless & Non-Invertible.** | Raw IPs and MAC addresses are never stored. |
-
-| **Header Spoofing** | Accepts user-supplied client identification headers without verification. | Recalculates expected ground-truth device tokens at the edge and drops forged headers. |
-
-| **ToS Enforcement** | Heavy-handed global bans that block innocent shared-IP users (e.g., universities/ISPs). | Precise, device-level blocking that isolates malicious users without impacting others. |
-
-| **Performance & Uptime** | Frequently overloaded, rate-limited, or blocked by origin web servers. | High-availability Cloudflare Worker / Pages edge execution with sub-2ms processing overhead. |
-
-
-
----
-
-
-
-## 🛡️ Under the Hood: Keyless Device Identification
-
-
-
-To enforce Terms of Service (ToS) and prevent abuse without compromising user privacy or requiring databases, SCORS uses a mathematically lossy fingerprinting engine. 
-
-
-
-### Why This Architecture Protects You
-
-1. **Zero Cookie Tracking:** SCORS does not write or read client cookies, `localStorage`, or session data.
-
-2. **Mathematically One-Way:** Due to floor-truncated division and 200-cycle non-linear bitwise stretching, it is physically impossible to reverse-engineer your actual IP address or MAC address from the generated token.
-
-3. **Proxy Longevity:** By keeping abusive bots off the network, the primary proxy endpoints remain unblocked and available for legitimate developers.
-
-
-
----
-
-
 
 ## 💻 Code Examples
 
-
-
-### JavaScript (`fetch`)
-
-
+### 1. Standard HTTP Fetch (JavaScript)
 
 ```javascript
-
-const PROXY_URL = "https://scors.scriptcraft.workers.dev/SCORS?url=";
-
+const PROXY_URL = "https://scors.scriptcraft.workers.dev/scors?url=";
 const TARGET_API = "https://api.example.com/data";
 
-
-
 async function fetchCorsData() {
-
   try {
-
     const response = await fetch(PROXY_URL + encodeURIComponent(TARGET_API), {
-
       method: "GET",
-
       headers: {
-
         "Accept": "application/json",
-
       },
-
     });
 
-
-
-    if (!response.ok) {
-
-      throw new Error(`HTTP error! Status: ${response.status}`);
-
-    }
-
-
-
+    if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
     const data = await response.json();
-
     console.log("Proxied Data:", data);
-
   } catch (error) {
-
-    console.error("CORS Proxy Fetch Failed:", error);
-
+    console.error("SCORS Proxy Fetch Failed:", error);
   }
-
 }
-
-
 
 fetchCorsData();
 
 ```
 
+### 2. WebSocket Connection (JavaScript)
 
+```javascript
+const PROXY_WS_ENDPOINT = "wss://scors.scriptcraft.workers.dev/scors?ws=";
+const TARGET_WS_SERVER = "wss://echo.websocket.events";
 
-### Python (`requests`)
+const socket = new WebSocket(PROXY_WS_ENDPOINT + encodeURIComponent(TARGET_WS_SERVER));
 
+socket.onopen = () => {
+  console.log("Connected to proxied WebSocket");
+  socket.send("Hello via SCORS!");
+};
 
+socket.onmessage = (event) => {
+  console.log("Received:", event.data);
+};
+
+```
+
+### 3. Python (`requests`)
 
 ```python
-
 import requests
-
 import urllib.parse
 
-
-
-proxy_url = "https://scors.scriptcraft.workers.dev/SCORS?url="
-
+proxy_url = "https://scors.scriptcraft.workers.dev/scors?url="
 target_api = "https://api.example.com/data"
 
-
-
-encoded_target = urllib.parse.quote(target_api, safe='')
-
-full_request_url = f"{proxy_url}{encoded_target}"
-
-
-
+full_request_url = f"{proxy_url}{urllib.parse.quote(target_api, safe='')}"
 response = requests.get(full_request_url)
 
-
-
 if response.status_code == 200:
-
     print("Proxied Response:", response.json())
-
 else:
-
     print(f"Failed with status code: {response.status_code}")
 
 ```
 
-
-
-### cURL
-
-
-
-```bash
-
-curl -X GET "https://scors.scriptcraft.workers.dev/SCORS?url=https://httpbin.org/headers" \
-
-  -H "Accept: application/json"
-
-```
-
-
-
 ---
 
+## 🔧 Deployment & Configuration
 
+### Directory Structure
 
-## 🔧 Self-Hosting & Deployment
+```text
+scors-proxy/
+├── wrangler.jsonc
+└── src/
+    ├── index.ts
+    ├── scorsCore.js
+    ├── scorsToken.js
+    └── socketProxy.js
 
+```
 
+### Environment Variables & Secrets
 
-If you want to run your own instance of SCORS on your Cloudflare account:
-
-
-
-### 1. Clone the Repository
+To activate residential proxy tunneling, configure the following secrets in Cloudflare Workers:
 
 ```bash
-
-git clone https://github.com/z6sGD/scors.git
-
-cd scors
-
-npm install
-
-```
-
-
-
-### 2. Configure `wrangler.toml`
-
-```toml
-
-name = "scors"
-
-main = "src/worker.js"
-
-compatibility_date = "2026-01-01"
-
-
-
-[vars]
-
-ENVIRONMENT = "production"
-
-
-
-# Optional Cloudflare KV binding for ToS bans
-
-# kv_namespaces = [
-
-#   { binding = "SCORS_BANLIST", id = "<YOUR_KV_NAMESPACE_ID>" }
-
-# ]
+npx wrangler secret put PROXY_HOST
+npx wrangler secret put PROXY_PORT
+npx wrangler secret put PROXY_USER
+npx wrangler secret put PROXY_PASS
+npx wrangler secret put ADMIN_SECRET
 
 ```
 
+### `wrangler.jsonc`
 
-
-### 3. Deploy
-
-```bash
-
-npx wrangler deploy
+```jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "scors-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SCORS_BANLIST",
+      "id": "<YOUR_KV_NAMESPACE_ID>"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "0 1,5,9,13,17,21 * * *"
+    ]
+  }
+}
 
 ```
-
-
 
 ---
-
-
 
 ## 📄 License
-
-
 
 This project is open-source and free for public use under the [GNU General Public License v3.0](LICENSE).
