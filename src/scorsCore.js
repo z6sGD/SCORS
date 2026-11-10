@@ -129,23 +129,43 @@ export async function handleScorsRequest(request, env = {}) {
     });
   }
 
-  let targetUrlStr = reqUrl.searchParams.get("url");
+  // ------------------------------------------------------------------------
+  // TARGET URL SELECTION (Support ?ws= and ?url= parameters)
+  // ------------------------------------------------------------------------
+  const isWebSocketReq = (request.headers.get("Upgrade") || "").toLowerCase() === "websocket";
+  let targetUrlStr = reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
+
   if (!targetUrlStr) {
     return new Response(
-      JSON.stringify({ status: "active", endpoint: "SCORS Proxy API", usage: `${reqUrl.pathname}?url=example.com` }),
+      JSON.stringify({ 
+        status: "active", 
+        endpoint: "SCORS Proxy API", 
+        usage: {
+          http: `${reqUrl.pathname}?url=https://example.com`,
+          websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`
+        }
+      }),
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
   }
 
   targetUrlStr = targetUrlStr.trim();
-  if (!/^https?:\/\//i.test(targetUrlStr)) targetUrlStr = "https://" + targetUrlStr;
+  
+  // Normalize WebSocket protocols for edge fetch compatibility
+  if (targetUrlStr.startsWith("ws://")) {
+    targetUrlStr = targetUrlStr.replace(/^ws:\/\//i, "http://");
+  } else if (targetUrlStr.startsWith("wss://")) {
+    targetUrlStr = targetUrlStr.replace(/^wss:\/\//i, "https://");
+  } else if (!/^https?:\/\//i.test(targetUrlStr)) {
+    targetUrlStr = (isWebSocketReq ? "https://" : "https://") + targetUrlStr;
+  }
 
   try {
     const targetUrl = new URL(targetUrlStr);
 
     // Forward form search parameters (e.g., ?q=query) to the target URL
     reqUrl.searchParams.forEach((value, key) => {
-      if (!["url", "local_ip", "mac", "secret"].includes(key)) {
+      if (!["url", "ws", "local_ip", "mac", "secret"].includes(key)) {
         targetUrl.searchParams.append(key, value);
       }
     });
@@ -275,36 +295,19 @@ export async function handleScorsRequest(request, env = {}) {
     }
 
     // ------------------------------------------------------------------------
-    // Full Browser Header Forwarding & Normalization (Solution 3)
+    // Full Browser Header Forwarding & Normalization
     // ------------------------------------------------------------------------
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
     modifiedHeaders.set("SCORS-Unique-Device-ID", actualDeviceId);
 
-    // Remove internal Cloudflare Edge headers that leak proxy structure or corrupt payload sizing
     ["cf-connecting-ip", "cf-ray", "cf-visitor", "cf-worker", "cf-ipcountry", "content-length"].forEach((h) =>
       modifiedHeaders.delete(h)
     );
 
-    // Forward/ensure standard browser headers to minimize bot detection triggers
     if (!modifiedHeaders.has("User-Agent")) {
       modifiedHeaders.set("User-Agent", userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
-    }
-    if (!modifiedHeaders.has("Accept-Language")) {
-      modifiedHeaders.set("Accept-Language", "en-US,en;q=0.9");
-    }
-    if (!modifiedHeaders.has("Accept")) {
-      modifiedHeaders.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
-    }
-    if (!modifiedHeaders.has("Sec-Fetch-Dest")) {
-      modifiedHeaders.set("Sec-Fetch-Dest", "document");
-    }
-    if (!modifiedHeaders.has("Sec-Fetch-Mode")) {
-      modifiedHeaders.set("Sec-Fetch-Mode", "navigate");
-    }
-    if (!modifiedHeaders.has("Sec-Fetch-Site")) {
-      modifiedHeaders.set("Sec-Fetch-Site", "cross-site");
     }
 
     const fetchOpts = {
@@ -316,6 +319,13 @@ export async function handleScorsRequest(request, env = {}) {
     if (!["GET", "HEAD"].includes(request.method) && request.body) {
       fetchOpts.body = request.body;
       fetchOpts.duplex = "half";
+    }
+
+    // ------------------------------------------------------------------------
+    // WEBSOCKET HANDSHAKE ROUTE
+    // ------------------------------------------------------------------------
+    if (isWebSocketReq || reqUrl.searchParams.has("ws")) {
+      return fetch(targetUrl.href, fetchOpts);
     }
 
     // ------------------------------------------------------------------------
@@ -343,18 +353,32 @@ export async function handleScorsRequest(request, env = {}) {
     const contentType = responseHeaders.get("content-type") || "";
 
     // ------------------------------------------------------------------------
-    // HTML Transformation Engine (Full Path Form Rewriting - Solution 2)
+    // HTML Transformation Engine (Rewrites HTML & Injects WebSocket JS Patch)
     // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
       const rewriter = new HTMLRewriter()
         .on("head", {
           element(element) {
-            // Inject client-side monkey-patching script into the browser context
             element.append(
               `<script>
                 (function() {
                   var PROXY_ORIGIN = "${reqUrl.origin}";
                   var TARGET_FULL = "${targetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
+
+                  // Patch window.WebSocket to automatically proxy client WS connections
+                  var NativeWebSocket = window.WebSocket;
+                  if (NativeWebSocket) {
+                    window.WebSocket = function(url, protocols) {
+                      try {
+                        var absUrl = new URL(url, TARGET_FULL).href;
+                        var proxiedWsUrl = PROXY_ORIGIN.replace(/^http/, 'ws') + '/scors?ws=' + encodeURIComponent(absUrl);
+                        return new (Function.prototype.bind.apply(NativeWebSocket, [null, proxiedWsUrl, protocols]))();
+                      } catch(e) {
+                        return new NativeWebSocket(url, protocols);
+                      }
+                    };
+                    window.WebSocket.prototype = NativeWebSocket.prototype;
+                  }
 
                   // Patch window.fetch for client-side API requests
                   var originalFetch = window.fetch;
@@ -370,7 +394,7 @@ export async function handleScorsRequest(request, env = {}) {
                     };
                   }
 
-                  // Patch history.pushState and history.replaceState to maintain proxy prefix on SPA navigations
+                  // Patch history state methods
                   var originalPush = history.pushState;
                   var originalReplace = history.replaceState;
                   function fixUrl(u) {
@@ -417,7 +441,6 @@ export async function handleScorsRequest(request, env = {}) {
 
               if (method === "GET") {
                 element.setAttribute("action", `${reqUrl.origin}/scors`);
-                // Use full absoluteUrl.href so endpoint paths like /search are preserved on submission
                 element.append(
                   `<input type="hidden" name="url" value="${absoluteUrl.href}">`,
                   { html: true }
