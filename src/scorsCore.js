@@ -1,7 +1,7 @@
 import { generateScorsDeviceId } from "./scorsToken.js";
 import { fetchViaSocketProxy } from "./socketProxy.js";
 
-const GITHUB_BANLIST_URL = "../banlist.json";
+const GITHUB_BANLIST_URL = "https://raw.githubusercontent.com/z6sGD/SCORS/main/banlist.json";
 
 function encodeUrlSafeBase64(str) {
   return btoa(encodeURIComponent(str))
@@ -124,7 +124,7 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   // Filter non-proxy routes
-  if (normalizedPath !== "/scors" && normalizedPath !== "/scorsencrypted" && normalizedPath !== "/scors/sync") {
+  if (normalizedPath !== "/scors" && normalizedPath !== "/scorsencrypted" && normalizedPath !== "/scors/sync" && normalizedPath !== "/browse") {
     return null;
   }
 
@@ -149,12 +149,76 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   // ------------------------------------------------------------------------
+  // BROWSER LAUNCHER INTERFACE ROUTE (/browse - Exact match only, no query params)
+  // ------------------------------------------------------------------------
+  if (normalizedPath === "/browse") {
+    // Strictly reject /browse?anything-right-after
+    if (reqUrl.search !== "") {
+      return null;
+    }
+
+    const browserHtmlPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCORS Browser</title>
+  <link rel="icon" type="image/x-icon" href="${reqUrl.origin}/favicon.ico">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; }
+    .card { background: #1e293b; padding: 2.5rem 2rem; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 100%; max-width: 500px; text-align: center; border: 1px solid #334155; }
+    .icon-box { margin-bottom: 1.2rem; }
+    .icon-box img { width: 64px; height: 64px; object-fit: contain; }
+    h1 { margin: 0 0 0.5rem 0; font-size: 1.7rem; color: #f97316; }
+    p { font-size: 0.95rem; color: #94a3b8; margin-bottom: 1.8rem; line-height: 1.4; }
+    .input-wrapper { display: flex; gap: 0.5rem; }
+    input[type="text"] { flex: 1; padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 1rem; }
+    input[type="text"]:focus { outline: none; border-color: #f97316; }
+    button { padding: 0.85rem 1.25rem; border: none; border-radius: 8px; background: #f97316; color: #fff; font-weight: bold; font-size: 1rem; cursor: pointer; transition: background 0.2s; }
+    button:hover { background: #ea580c; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon-box">
+      <img src="${reqUrl.origin}/assets/browsericon.png" alt="Browser Icon" />
+    </div>
+    <h1>SCORS Web Browser</h1>
+    <p>Enter any URL or domain name to begin browsing seamlessly through edge nodes.</p>
+    <form id="browserForm" action="${reqUrl.origin}/scors" method="GET">
+      <div class="input-wrapper">
+        <input type="text" id="targetUrlInput" name="url" placeholder="example.com or https://..." required autocomplete="off" />
+        <button type="submit">Launch</button>
+      </div>
+    </form>
+  </div>
+  <script>
+    document.getElementById('browserForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var raw = document.getElementById('targetUrlInput').value.trim();
+      if (!raw) return;
+      if (!/^https?:\/\//i.test(raw) && !/^wss?:\/\//i.test(raw)) {
+        raw = 'https://' + raw;
+      }
+      window.location.href = window.location.origin + '/scors?url=' + encodeURIComponent(raw);
+    });
+  </script>
+</body>
+</html>`;
+
+    return new Response(browserHtmlPage, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8", ...corsHeaders },
+    });
+  }
+
+  // ------------------------------------------------------------------------
   // ENCRYPTED URL UI & GENERATOR ROUTE (/scorsencrypted)
   // ------------------------------------------------------------------------
   if (normalizedPath === "/scorsencrypted") {
     let rawUrl = reqUrl.searchParams.get("url") || reqUrl.searchParams.get("ws");
 
-    // Serve interactive encryption UI if no target parameter is present
     if (!rawUrl) {
       const htmlPage = `<!DOCTYPE html>
 <html lang="en">
@@ -194,8 +258,8 @@ export async function handleScorsRequest(request, env = {}) {
       }
 
       var encoded = btoa(encodeURIComponent(raw))
-        .replaceAll('+', '-')
-        .replaceAll('/', '_')
+        .replace(/\\+/g, '-')
+        .replace(/\\//g, '_')
         .replace(/=+$/, '');
 
       window.location.href = window.location.origin + '/scors?url=' + encoded;
@@ -210,7 +274,6 @@ export async function handleScorsRequest(request, env = {}) {
       });
     }
 
-    // Server-side fallback: Converts /scorsencrypted?url=example.com to Base64 redirect
     rawUrl = rawUrl.trim();
     if (!/^https?:\/\//i.test(rawUrl) && !/^wss?:\/\//i.test(rawUrl)) {
       rawUrl = "https://" + rawUrl;
@@ -320,6 +383,7 @@ export async function handleScorsRequest(request, env = {}) {
         endpoint: "SCORS Proxy API", 
         usage: {
           apiCheck: `${reqUrl.pathname}?api`,
+          browser: `${reqUrl.origin}/browse`,
           encryptedGenerator: `${reqUrl.origin}/scorsencrypted`,
           http: `${reqUrl.pathname}?url=https://example.com`,
           websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`
@@ -331,7 +395,6 @@ export async function handleScorsRequest(request, env = {}) {
 
   targetUrlStr = targetUrlStr.trim();
   
-  // Check if targetUrlStr is a jumbled/encrypted Base64 string and decode it
   if (!/^https?:\/\//i.test(targetUrlStr) && !/^wss?:\/\//i.test(targetUrlStr)) {
     const decodedUrl = decodeUrlSafeBase64(targetUrlStr);
     if (decodedUrl && (/^https?:\/\//i.test(decodedUrl) || /^wss?:\/\//i.test(decodedUrl))) {
@@ -343,7 +406,6 @@ export async function handleScorsRequest(request, env = {}) {
     }
   }
 
-  // Normalize WebSocket & HTTP protocols
   if (targetUrlStr.startsWith("ws://")) {
     targetUrlStr = targetUrlStr.replace(/^ws:\/\//i, "http://");
   } else if (targetUrlStr.startsWith("wss://")) {
@@ -353,7 +415,6 @@ export async function handleScorsRequest(request, env = {}) {
   try {
     const targetUrl = new URL(targetUrlStr);
 
-    // Forward query parameters to the target URL
     reqUrl.searchParams.forEach((value, key) => {
       if (!["url", "ws", "api", "local_ip", "mac", "secret"].includes(key)) {
         targetUrl.searchParams.append(key, value);
@@ -366,7 +427,7 @@ export async function handleScorsRequest(request, env = {}) {
     }
 
     // ------------------------------------------------------------------------
-    // RATE LIMITER 1: IP Burst Protection (5 req/sec -> 30s temp block)
+    // RATE LIMITERS
     // ------------------------------------------------------------------------
     if (env && env.SCORS_BANLIST) {
       const now = Date.now();
@@ -405,9 +466,6 @@ export async function handleScorsRequest(request, env = {}) {
       }
     }
 
-    // ------------------------------------------------------------------------
-    // RATE LIMITER 2: Target URL Limiter (1 req / 10 sec per target URL)
-    // ------------------------------------------------------------------------
     if (env && env.SCORS_BANLIST) {
       const now = Date.now();
       const safeUrlKey = `rate:url:${btoa(targetUrl.href).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100)}`;
@@ -474,7 +532,7 @@ export async function handleScorsRequest(request, env = {}) {
     }
 
     // ------------------------------------------------------------------------
-    // OUTBOUND EXECUTION (Sockets Residential Proxy vs. Direct Fetch)
+    // OUTBOUND EXECUTION
     // ------------------------------------------------------------------------
     let response;
 
@@ -498,7 +556,7 @@ export async function handleScorsRequest(request, env = {}) {
     const contentType = responseHeaders.get("content-type") || "";
 
     // ------------------------------------------------------------------------
-    // HTML Transformation Engine
+    // HTML Transformation Engine (Injects Floating Browser Icon & JS Patches)
     // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
       const rewriter = new HTMLRewriter()
@@ -568,6 +626,17 @@ export async function handleScorsRequest(request, env = {}) {
                   }
                 })();
               </script>`,
+              { html: true }
+            );
+          },
+        })
+        .on("body", {
+          element(element) {
+            // Injects bottom-left floating transparent gray button overlaying /assets/browsericon.png
+            element.append(
+              `<a href="${reqUrl.origin}/browse" id="scors-browser-float-btn" title="SCORS Browser Home" style="position:fixed;bottom:16px;left:16px;z-index:2147483647;width:48px;height:48px;background:rgba(30,41,59,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);transition:all 0.2s ease;text-decoration:none;" onmouseover="this.style.background='rgba(30,41,59,0.95)';this.style.transform='scale(1.08)';" onmouseout="this.style.background='rgba(30,41,59,0.75)';this.style.transform='scale(1)';">
+                <img src="${reqUrl.origin}/assets/browsericon.png" alt="Browser Icon" style="width:24px;height:24px;object-fit:contain;display:block;" />
+              </a>`,
               { html: true }
             );
           },
