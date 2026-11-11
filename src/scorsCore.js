@@ -149,27 +149,75 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   // ------------------------------------------------------------------------
-  // ENCRYPTED URL CONVERTER ROUTE (/scorsencrypted?url=example.com)
+  // ENCRYPTED URL UI & GENERATOR ROUTE (/scorsencrypted)
   // ------------------------------------------------------------------------
   if (normalizedPath === "/scorsencrypted") {
     let rawUrl = reqUrl.searchParams.get("url") || reqUrl.searchParams.get("ws");
+
+    // Serve interactive encryption UI if no target parameter is passed
     if (!rawUrl) {
-      return new Response(
-        JSON.stringify({ error: "Missing target URL", usage: `${reqUrl.pathname}?url=example.com` }),
-        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
+      const htmlPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCORS URL Encryptor</title>
+  <link rel="icon" type="image/x-icon" href="${reqUrl.origin}/favicon.ico">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
+    .card { background: #1e293b; padding: 2.5rem 2rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 100%; max-width: 480px; text-align: center; border: 1px solid #334155; }
+    h1 { margin-top: 0; font-size: 1.6rem; color: #f97316; }
+    p { font-size: 0.95rem; color: #94a3b8; margin-bottom: 1.8rem; line-height: 1.4; }
+    input { width: 100%; padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 1rem; box-sizing: border-box; margin-bottom: 1.2rem; }
+    input:focus { outline: none; border-color: #f97316; }
+    button { width: 100%; padding: 0.85rem; border: none; border-radius: 8px; background: #f97316; color: #fff; font-weight: bold; font-size: 1rem; cursor: pointer; transition: background 0.2s; }
+    button:hover { background: #ea580c; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>SCORS Encrypted Proxy</h1>
+    <p>Enter any website or API URL to generate an obfuscated SCORS proxy link and launch it directly.</p>
+    <form id="encryptForm">
+      <input type="text" id="targetInput" placeholder="example.com or https://..." required autocomplete="off" />
+      <button type="submit">Encrypt & Launch Proxy</button>
+    </form>
+  </div>
+  <script>
+    document.getElementById('encryptForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var raw = document.getElementById('targetInput').value.trim();
+      if (!raw) return;
+
+      if (!/^https?:\/\//i.test(raw) && !/^wss?:\/\//i.test(raw)) {
+        raw = 'https://' + raw;
+      }
+
+      var encoded = btoa(encodeURIComponent(raw))
+        .replace(/\\+/g, '-')
+        .replace(/\\//g, '_')
+        .replace(/=+$/, '');
+
+      window.location.href = window.location.origin + '/scors?url=' + encoded;
+    });
+  </script>
+</body>
+</html>`;
+
+      return new Response(htmlPage, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8", ...corsHeaders },
+      });
     }
 
+    // Direct parameter conversion fallback
     rawUrl = rawUrl.trim();
     if (!/^https?:\/\//i.test(rawUrl) && !/^wss?:\/\//i.test(rawUrl)) {
       rawUrl = "https://" + rawUrl;
     }
 
     const encryptedString = encodeUrlSafeBase64(rawUrl);
-    const proxiedEncryptedUrl = `${reqUrl.origin}/scors?url=${encryptedString}`;
-
-    // Automatically redirect to the encrypted proxy URL
-    return Response.redirect(proxiedEncryptedUrl, 302);
+    return Response.redirect(`${reqUrl.origin}/scors?url=${encryptedString}`, 302);
   }
 
   const isApiCheckReq = reqUrl.searchParams.has("api");
@@ -272,7 +320,7 @@ export async function handleScorsRequest(request, env = {}) {
         endpoint: "SCORS Proxy API", 
         usage: {
           apiCheck: `${reqUrl.pathname}?api`,
-          encryptedGenerator: `${reqUrl.origin}/scorsencrypted?url=example.com`,
+          encryptedGenerator: `${reqUrl.origin}/scorsencrypted`,
           http: `${reqUrl.pathname}?url=https://example.com`,
           websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`
         }
