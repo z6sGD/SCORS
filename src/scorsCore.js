@@ -184,23 +184,24 @@ export async function handleScorsRequest(request, env = {}) {
     </form>
   </div>
   <script>
-    document.getElementById('encryptForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      var raw = document.getElementById('targetInput').value.trim();
-      if (!raw) return;
+  document.getElementById('encryptForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var raw = document.getElementById('targetInput').value.trim();
+    if (!raw) return;
 
-      if (!/^https?:\/\//i.test(raw) && !/^wss?:\/\//i.test(raw)) {
-        raw = 'https://' + raw;
-      }
+    if (!/^https?:\/\//i.test(raw) && !/^wss?:\/\//i.test(raw)) {
+      raw = 'https://' + raw;
+    }
 
-      var encoded = btoa(encodeURIComponent(raw))
-        .replace(/\\+/g, '-')
-        .replace(/\\//g, '_')
-        .replace(/=+$/, '');
+    // Clean URL-safe Base64 without regex escaping bugs
+    var encoded = btoa(encodeURIComponent(raw))
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+      .replace(/=+$/, '');
 
-      window.location.href = window.location.origin + '/scors?url=' + encoded;
-    });
-  </script>
+    window.location.href = window.location.origin + '/scors?url=' + encoded;
+  });
+</script>
 </body>
 </html>`;
 
