@@ -3,6 +3,25 @@ import { fetchViaSocketProxy } from "./socketProxy.js";
 
 const GITHUB_BANLIST_URL = "../banlist.json";
 
+function encodeUrlSafeBase64(str) {
+  return btoa(encodeURIComponent(str))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function decodeUrlSafeBase64(str) {
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4 !== 0) {
+    base64 += "=";
+  }
+  try {
+    return decodeURIComponent(atob(base64));
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function syncBanlistFromGithub(env) {
   try {
     if (!env || !env.SCORS_BANLIST) {
@@ -58,7 +77,7 @@ export async function handleScorsRequest(request, env = {}) {
     });
   }
 
-  // Admin API Routing (Used by decoupled admin apps)
+  // Admin API Routing
   if (normalizedPath.startsWith("/scors/admin/api")) {
     const adminCorsHeaders = {
       "Content-Type": "application/json",
@@ -105,7 +124,7 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   // Filter non-proxy routes
-  if (normalizedPath !== "/scors" && normalizedPath !== "/scors/sync") {
+  if (normalizedPath !== "/scors" && normalizedPath !== "/scorsencrypted" && normalizedPath !== "/scors/sync") {
     return null;
   }
 
@@ -127,6 +146,30 @@ export async function handleScorsRequest(request, env = {}) {
       status: syncResult.success ? 200 : 500,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
+  }
+
+  // ------------------------------------------------------------------------
+  // ENCRYPTED URL CONVERTER ROUTE (/scorsencrypted?url=example.com)
+  // ------------------------------------------------------------------------
+  if (normalizedPath === "/scorsencrypted") {
+    let rawUrl = reqUrl.searchParams.get("url") || reqUrl.searchParams.get("ws");
+    if (!rawUrl) {
+      return new Response(
+        JSON.stringify({ error: "Missing target URL", usage: `${reqUrl.pathname}?url=example.com` }),
+        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
+    rawUrl = rawUrl.trim();
+    if (!/^https?:\/\//i.test(rawUrl) && !/^wss?:\/\//i.test(rawUrl)) {
+      rawUrl = "https://" + rawUrl;
+    }
+
+    const encryptedString = encodeUrlSafeBase64(rawUrl);
+    const proxiedEncryptedUrl = `${reqUrl.origin}/scors?url=${encryptedString}`;
+
+    // Automatically redirect to the encrypted proxy URL
+    return Response.redirect(proxiedEncryptedUrl, 302);
   }
 
   const isApiCheckReq = reqUrl.searchParams.has("api");
@@ -218,7 +261,7 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   // ------------------------------------------------------------------------
-  // TARGET URL SELECTION (Support ?ws= and ?url= parameters)
+  // TARGET URL SELECTION & DECRYPTION ENGINE
   // ------------------------------------------------------------------------
   let targetUrlStr = reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
 
@@ -229,6 +272,7 @@ export async function handleScorsRequest(request, env = {}) {
         endpoint: "SCORS Proxy API", 
         usage: {
           apiCheck: `${reqUrl.pathname}?api`,
+          encryptedGenerator: `${reqUrl.origin}/scorsencrypted?url=example.com`,
           http: `${reqUrl.pathname}?url=https://example.com`,
           websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`
         }
@@ -239,13 +283,23 @@ export async function handleScorsRequest(request, env = {}) {
 
   targetUrlStr = targetUrlStr.trim();
   
+  // Check if targetUrlStr is a jumbled/encrypted Base64 string and decode it
+  if (!/^https?:\/\//i.test(targetUrlStr) && !/^wss?:\/\//i.test(targetUrlStr)) {
+    const decodedUrl = decodeUrlSafeBase64(targetUrlStr);
+    if (decodedUrl && (/^https?:\/\//i.test(decodedUrl) || /^wss?:\/\//i.test(decodedUrl))) {
+      targetUrlStr = decodedUrl;
+    } else if (decodedUrl && !decodedUrl.includes(" ")) {
+      targetUrlStr = "https://" + decodedUrl;
+    } else {
+      targetUrlStr = "https://" + targetUrlStr;
+    }
+  }
+
   // Normalize WebSocket & HTTP protocols
   if (targetUrlStr.startsWith("ws://")) {
     targetUrlStr = targetUrlStr.replace(/^ws:\/\//i, "http://");
   } else if (targetUrlStr.startsWith("wss://")) {
     targetUrlStr = targetUrlStr.replace(/^wss:\/\//i, "https://");
-  } else if (!/^https?:\/\//i.test(targetUrlStr)) {
-    targetUrlStr = "https://" + targetUrlStr;
   }
 
   try {
@@ -345,7 +399,6 @@ export async function handleScorsRequest(request, env = {}) {
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
     modifiedHeaders.set("SCORS-Unique-Device-ID", actualDeviceId);
 
-    // Strip internal Cloudflare edge tracking and browser cookies to maintain stateless proxying
     ["cf-connecting-ip", "cf-ray", "cf-visitor", "cf-worker", "cf-ipcountry", "content-length", "cookie"].forEach((h) =>
       modifiedHeaders.delete(h)
     );
@@ -397,7 +450,7 @@ export async function handleScorsRequest(request, env = {}) {
     const contentType = responseHeaders.get("content-type") || "";
 
     // ------------------------------------------------------------------------
-    // HTML Transformation Engine (Rewrites Favicons, HTML & Injects JS Patches)
+    // HTML Transformation Engine
     // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
       const rewriter = new HTMLRewriter()
@@ -411,7 +464,6 @@ export async function handleScorsRequest(request, env = {}) {
                   var PROXY_ORIGIN = "${reqUrl.origin}";
                   var TARGET_FULL = "${targetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
 
-                  // Override dynamic favicon updates in DOM
                   var origSetAttr = Element.prototype.setAttribute;
                   Element.prototype.setAttribute = function(name, val) {
                     if (this.tagName === 'LINK' && (this.getAttribute('rel') || '').toLowerCase().indexOf('icon') !== -1 && name.toLowerCase() === 'href') {
@@ -420,7 +472,6 @@ export async function handleScorsRequest(request, env = {}) {
                     return origSetAttr.call(this, name, val);
                   };
 
-                  // Patch window.WebSocket
                   var NativeWebSocket = window.WebSocket;
                   if (NativeWebSocket) {
                     window.WebSocket = function(url, protocols) {
@@ -435,7 +486,6 @@ export async function handleScorsRequest(request, env = {}) {
                     window.WebSocket.prototype = NativeWebSocket.prototype;
                   }
 
-                  // Patch window.fetch
                   var originalFetch = window.fetch;
                   if (originalFetch) {
                     window.fetch = function(resource, init) {
@@ -449,7 +499,6 @@ export async function handleScorsRequest(request, env = {}) {
                     };
                   }
 
-                  // Patch history state methods
                   var originalPush = history.pushState;
                   var originalReplace = history.replaceState;
                   function fixUrl(u) {
@@ -512,7 +561,6 @@ export async function handleScorsRequest(request, env = {}) {
             const attrVal = element.getAttribute(attrName);
             if (attrVal && !attrVal.startsWith("data:")) {
               const rel = (element.getAttribute("rel") || "").toLowerCase();
-              // Direct all target site favicon requests to proxy root favicon.ico
               if (element.tagName === "link" && rel.includes("icon")) {
                 element.setAttribute("href", `${reqUrl.origin}/favicon.ico`);
               } else {
