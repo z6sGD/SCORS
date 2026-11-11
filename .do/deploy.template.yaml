@@ -1,0 +1,29 @@
+spec:
+  name: scors-proxy-engine
+  services:
+    - name: scors-web
+      git:
+        repo_clone_url: https://github.com/z6sGD/SCORS.git
+        branch: main
+      dockerfile_path: Dockerfile
+      http_port: 8080
+      instance_count: 1
+      instance_size_slug: basic-xxs
+      envs:
+        - key: ADMIN_SECRET
+          value: "change-this-admin-secret"
+          type: SECRET
+          scope: RUN_TIME
+        - key: PROXY_HOST
+          value: ""
+          scope: RUN_TIME
+        - key: PROXY_PORT
+          value: ""
+          scope: RUN_TIME
+        - key: PROXY_USER
+          value: ""
+          scope: RUN_TIME
+        - key: PROXY_PASS
+          value: ""
+          type: SECRET
+          scope: RUN_TIME
