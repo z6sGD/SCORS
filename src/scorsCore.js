@@ -634,8 +634,8 @@ export async function handleScorsRequest(request, env = {}) {
           element(element) {
             // Injects bottom-left floating transparent gray button overlaying /assets/browsericon.png
             element.append(
-              `<a href="${reqUrl.origin}/browse" id="scors-browser-float-btn" title="SCORS Browser Home" style="position:fixed;bottom:16px;left:16px;z-index:2147483647;width:48px;height:48px;background:rgba(30,41,59,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);transition:all 0.2s ease;text-decoration:none;" onmouseover="this.style.background='rgba(30,41,59,0.95)';this.style.transform='scale(1.08)';" onmouseout="this.style.background='rgba(30,41,59,0.75)';this.style.transform='scale(1)';">
-                <img src="${reqUrl.origin}/assets/browsericon.png" alt="Browser Icon" style="width:24px;height:24px;object-fit:contain;display:block;" />
+              `<a href="https://github.com/z6sGD/SCORS" id="scors-browser-float-btn" title="Support this project on GitHub" style="position:fixed;bottom:16px;left:16px;z-index:2147483647;width:48px;height:48px;background:rgba(30,41,59,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);transition:all 0.2s ease;text-decoration:none;" onmouseover="this.style.background='rgba(30,41,59,0.95)';this.style.transform='scale(1.08)';" onmouseout="this.style.background='rgba(30,41,59,0.75)';this.style.transform='scale(1)';">
+                <img src="https://github.com/favicon.ico" alt="GitHub Repo" style="width:24px;height:24px;object-fit:contain;display:block;" />
               </a>`,
               { html: true }
             );
