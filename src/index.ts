@@ -1,4 +1,5 @@
 import { handleScorsRequest, syncBanlistFromGithub } from "./scorsCore.js";
+import indexHtml from "../index.html";
 
 export interface Env {
   SCORS_BANLIST: KVNamespace;
@@ -16,9 +17,26 @@ export default {
     env: Env,
     ctx: ExecutionContext
   ): Promise<Response> {
+    const url = new URL(request.url);
+
+    // 1. Tell search engines they are allowed to index the site
+    if (url.pathname === "/robots.txt") {
+      return new Response("User-agent: *\nAllow: /\n", {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+
+    // 2. Run your proxy logic
     const scorsResponse = await handleScorsRequest(request, env);
     if (scorsResponse) {
       return scorsResponse;
+    }
+
+    // 3. Serve your homepage HTML instead of a 404 error
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      return new Response(indexHtml, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
     }
 
     return new Response(JSON.stringify({ error: "Not Found" }), {
