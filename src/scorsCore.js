@@ -154,7 +154,7 @@ export async function handleScorsRequest(request, env = {}) {
   if (normalizedPath === "/scorsencrypted") {
     let rawUrl = reqUrl.searchParams.get("url") || reqUrl.searchParams.get("ws");
 
-    // Serve interactive encryption UI if no target parameter is passed
+    // Serve interactive encryption UI if no target parameter is present
     if (!rawUrl) {
       const htmlPage = `<!DOCTYPE html>
 <html lang="en">
@@ -178,30 +178,29 @@ export async function handleScorsRequest(request, env = {}) {
   <div class="card">
     <h1>SCORS Encrypted Proxy</h1>
     <p>Enter any website or API URL to generate an obfuscated SCORS proxy link and launch it directly.</p>
-    <form id="encryptForm">
-      <input type="text" id="targetInput" placeholder="example.com or https://..." required autocomplete="off" />
+    <form id="encryptForm" action="${reqUrl.origin}/scorsencrypted" method="GET">
+      <input type="text" id="targetInput" name="url" placeholder="example.com or https://..." required autocomplete="off" />
       <button type="submit">Encrypt & Launch Proxy</button>
     </form>
   </div>
   <script>
-  document.getElementById('encryptForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    var raw = document.getElementById('targetInput').value.trim();
-    if (!raw) return;
+    document.getElementById('encryptForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var raw = document.getElementById('targetInput').value.trim();
+      if (!raw) return;
 
-    if (!/^https?:\/\//i.test(raw) && !/^wss?:\/\//i.test(raw)) {
-      raw = 'https://' + raw;
-    }
+      if (!/^https?:\/\//i.test(raw) && !/^wss?:\/\//i.test(raw)) {
+        raw = 'https://' + raw;
+      }
 
-    // Clean URL-safe Base64 without regex escaping bugs
-    var encoded = btoa(encodeURIComponent(raw))
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replace(/=+$/, '');
+      var encoded = btoa(encodeURIComponent(raw))
+        .replaceAll('+', '-')
+        .replaceAll('/', '_')
+        .replace(/=+$/, '');
 
-    window.location.href = window.location.origin + '/scors?url=' + encoded;
-  });
-</script>
+      window.location.href = window.location.origin + '/scors?url=' + encoded;
+    });
+  </script>
 </body>
 </html>`;
 
@@ -211,7 +210,7 @@ export async function handleScorsRequest(request, env = {}) {
       });
     }
 
-    // Direct parameter conversion fallback
+    // Server-side fallback: Converts /scorsencrypted?url=example.com to Base64 redirect
     rawUrl = rawUrl.trim();
     if (!/^https?:\/\//i.test(rawUrl) && !/^wss?:\/\//i.test(rawUrl)) {
       rawUrl = "https://" + rawUrl;
