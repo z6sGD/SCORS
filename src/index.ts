@@ -1,5 +1,5 @@
 import { handleScorsRequest, syncBanlistFromGithub } from "./scorsCore.js";
-import indexHtml from "../index.html";
+import indexHtml from "../404.html";
 
 export interface Env {
   SCORS_BANLIST: KVNamespace;
