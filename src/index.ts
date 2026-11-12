@@ -33,7 +33,7 @@ export default {
     }
 
     // 3. Serve your homepage HTML instead of a 404 error
-    if (url.pathname === "/" || url.pathname === "/index.html") {
+    if (url.pathname === "/" || url.pathname === "/404.html") {
       return new Response(indexHtml, {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
