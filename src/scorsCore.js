@@ -22,6 +22,18 @@ function decodeUrlSafeBase64(str) {
   }
 }
 
+function decodeHtmlEntities(str) {
+  if (!str) return str;
+  return str
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
   if (!cssText) return cssText;
 
@@ -322,7 +334,7 @@ export async function handleScorsRequest(request, env = {}) {
     return new Response(
       JSON.stringify({
         status: 200,
-        service: "SCORS API",
+        service: "SCORS Proxy API",
         state: "operational",
         responseTimeMs: responseTimeMs,
         deviceId: actualDeviceId,
@@ -396,9 +408,13 @@ export async function handleScorsRequest(request, env = {}) {
       return new Response(JSON.stringify({ error: "Forbidden target host" }), { status: 403, headers: corsHeaders });
     }
 
-    const isStaticAsset = /\.(css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|otf|map|json|mp4|webm|mp3|wav)$/i.test(
-      targetUrl.pathname
-    );
+    const fetchDest = (request.headers.get("sec-fetch-dest") || "").toLowerCase();
+    const isStaticAsset =
+      ["style", "script", "image", "font", "audio", "video"].includes(fetchDest) ||
+      targetUrl.pathname.endsWith("/load.php") ||
+      /\.(css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|otf|map|json|mp4|webm|mp3|wav)$/i.test(
+        targetUrl.pathname
+      );
 
     // ------------------------------------------------------------------------
     // RATE LIMITER 1: IP Burst Protection (60 req/sec -> 30s temp block)
@@ -529,6 +545,11 @@ export async function handleScorsRequest(request, env = {}) {
       response = await fetch(targetUrl.href, fetchOpts);
     }
 
+    let finalTargetUrl = targetUrl;
+    try {
+      if (response.url) finalTargetUrl = new URL(response.url);
+    } catch (_) {}
+
     const responseHeaders = new Headers(response.headers);
     Object.entries(corsHeaders).forEach(([k, v]) => responseHeaders.set(k, v));
     responseHeaders.delete("X-Frame-Options");
@@ -541,8 +562,9 @@ export async function handleScorsRequest(request, env = {}) {
     // ------------------------------------------------------------------------
     if (contentType.includes("text/css")) {
       const rawCss = await response.text();
-      const rewrittenCss = rewriteCssUrls(rawCss, targetUrl.href, reqUrl.origin);
+      const rewrittenCss = rewriteCssUrls(rawCss, finalTargetUrl.href, reqUrl.origin);
       responseHeaders.delete("content-length");
+      responseHeaders.delete("content-encoding");
       return new Response(rewrittenCss, {
         status: response.status,
         headers: responseHeaders,
@@ -550,7 +572,7 @@ export async function handleScorsRequest(request, env = {}) {
     }
 
     // ------------------------------------------------------------------------
-    // HTML Transformation Engine (Injects Floating Browser Icon, CSS & JS Patches)
+    // HTML Transformation Engine (Injects Floating GitHub Button, CSS & JS Patches)
     // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
       let styleBuffer = "";
@@ -564,7 +586,7 @@ export async function handleScorsRequest(request, env = {}) {
               <script>
                 (function() {
                   var PROXY_ORIGIN = "${reqUrl.origin}";
-                  var TARGET_FULL = "${targetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
+                  var TARGET_FULL = "${finalTargetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
 
                   function proxyAssetUrl(u) {
                     if (!u || typeof u !== 'string') return u;
@@ -674,7 +696,7 @@ export async function handleScorsRequest(request, env = {}) {
           text(chunk) {
             styleBuffer += chunk.text;
             if (chunk.lastInTextNode) {
-              chunk.replace(rewriteCssUrls(styleBuffer, targetUrl.href, reqUrl.origin), { html: false });
+              chunk.replace(rewriteCssUrls(styleBuffer, finalTargetUrl.href, reqUrl.origin), { html: false });
               styleBuffer = "";
             } else {
               chunk.remove();
@@ -685,15 +707,15 @@ export async function handleScorsRequest(request, env = {}) {
           element(element) {
             const inlineStyle = element.getAttribute("style");
             if (inlineStyle && inlineStyle.includes("url(")) {
-              element.setAttribute("style", rewriteCssUrls(inlineStyle, targetUrl.href, reqUrl.origin));
+              element.setAttribute("style", rewriteCssUrls(inlineStyle, finalTargetUrl.href, reqUrl.origin));
             }
           },
         })
         .on("body", {
           element(element) {
             element.append(
-              `<a href="${reqUrl.origin}/browse" id="scors-browser-float-btn" title="SCORS Browser Home" style="position:fixed;bottom:16px;left:16px;z-index:2147483647;width:48px;height:48px;background:rgba(30,41,59,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);transition:all 0.2s ease;text-decoration:none;" onmouseover="this.style.background='rgba(30,41,59,0.95)';this.style.transform='scale(1.08)';" onmouseout="this.style.background='rgba(30,41,59,0.75)';this.style.transform='scale(1)';">
-                <img src="${reqUrl.origin}/assets/browsericon.png" alt="Browser Icon" style="width:24px;height:24px;object-fit:contain;display:block;" />
+              `<a href="https://github.com/z6sGD/SCORS" target="_blank" rel="noopener noreferrer" id="scors-github-float-btn" title="Support this project on GitHub" aria-label="Support this project on GitHub" style="position:fixed;bottom:16px;left:16px;z-index:2147483647;width:48px;height:48px;background:rgba(203,213,225,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.25);border:1px solid rgba(15,23,42,0.15);transition:all 0.2s ease;text-decoration:none;" onmouseover="this.style.background='rgba(203,213,225,0.95)';this.style.transform='scale(1.08)';" onmouseout="this.style.background='rgba(203,213,225,0.75)';this.style.transform='scale(1)';">
+                <img src="https://github.com/favicon.ico" alt="Support this project on GitHub" style="width:24px;height:24px;object-fit:contain;display:block;" />
               </a>`,
               { html: true }
             );
@@ -701,10 +723,11 @@ export async function handleScorsRequest(request, env = {}) {
         })
         .on("a[href]", {
           element(element) {
-            const href = element.getAttribute("href");
-            if (href && !href.startsWith("javascript:") && !href.startsWith("#") && !href.startsWith("mailto:")) {
+            const rawHref = element.getAttribute("href");
+            const href = decodeHtmlEntities(rawHref);
+            if (href && !href.startsWith("javascript:") && !href.startsWith("#") && !href.startsWith("mailto:") && !href.startsWith("blob:")) {
               try {
-                const absoluteUrl = new URL(href, targetUrl.href).href;
+                const absoluteUrl = new URL(href, finalTargetUrl.href).href;
                 element.setAttribute("href", `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
               } catch (_) {}
             }
@@ -712,11 +735,12 @@ export async function handleScorsRequest(request, env = {}) {
         })
         .on("form", {
           element(element) {
-            const action = element.getAttribute("action") || targetUrl.href;
+            const rawAction = element.getAttribute("action");
+            const action = rawAction ? decodeHtmlEntities(rawAction) : finalTargetUrl.href;
             const method = (element.getAttribute("method") || "GET").toUpperCase();
 
             try {
-              const absoluteUrl = new URL(action, targetUrl.href);
+              const absoluteUrl = new URL(action, finalTargetUrl.href);
 
               if (method === "GET") {
                 element.setAttribute("action", `${reqUrl.origin}/scors`);
@@ -733,14 +757,15 @@ export async function handleScorsRequest(request, env = {}) {
         .on("img[src], script[src], link[href], iframe[src]", {
           element(element) {
             const attrName = element.hasAttribute("src") ? "src" : "href";
-            const attrVal = element.getAttribute(attrName);
-            if (attrVal && !attrVal.startsWith("data:")) {
+            const rawAttrVal = element.getAttribute(attrName);
+            const attrVal = decodeHtmlEntities(rawAttrVal);
+            if (attrVal && !attrVal.startsWith("data:") && !attrVal.startsWith("blob:")) {
               const rel = (element.getAttribute("rel") || "").toLowerCase();
               if (element.tagName === "link" && rel.includes("icon")) {
                 element.setAttribute("href", `${reqUrl.origin}/favicon.ico`);
               } else {
                 try {
-                  const absoluteUrl = new URL(attrVal, targetUrl.href).href;
+                  const absoluteUrl = new URL(attrVal, finalTargetUrl.href).href;
                   element.setAttribute(attrName, `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
                 } catch (_) {}
               }
