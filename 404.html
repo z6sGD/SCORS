@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>uh oh 404 but you found the pirate token</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body, html {
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    /* Fullscreen Background Video */
+    .bg-video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: -1;
+    }
+
+    /* Centered Text Overlay */
+    .overlay {
+      position: relative;
+      z-index: 1;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      color: #ffffff;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 20px;
+    }
+
+    .overlay h1 {
+      font-size: 3.5rem;
+      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+    }
+
+    .overlay p {
+      font-size: 1.25rem;
+      margin-top: 10px;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+    }
+  </style>
+</head>
+<body>
+
+  <video class="bg-video" autoplay loop playsinline>
+    <source src="/assets/Pirate%20Token%20-%20Juice%20WRLD%20(Lyric%20Video).mp4" type="video/mp4">
+  </video>
+
+  <div class="overlay">
+    <h1>uh oh 404</h1>
+  </div>
+
+</body>
+</html>
