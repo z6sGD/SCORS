@@ -22,6 +22,44 @@ function decodeUrlSafeBase64(str) {
   }
 }
 
+function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
+  if (!cssText) return cssText;
+
+  // Rewrite @import "..." or @import '...'
+  let updated = cssText.replace(/@import\s+(["'])([^"']+)\1/gi, (match, quote, importUrl) => {
+    const trimmed = importUrl.trim();
+    if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith(proxyOrigin)) return match;
+    try {
+      const absUrl = new URL(trimmed, baseUrl).href;
+      return `@import ${quote}${proxyOrigin}/scors?url=${encodeURIComponent(absUrl)}${quote}`;
+    } catch (_) {
+      return match;
+    }
+  });
+
+  // Rewrite all url(...) references (covers @import url(...), fonts, background images, etc.)
+  updated = updated.replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi, (match, quote, assetUrl) => {
+    const trimmed = assetUrl.trim();
+    if (
+      !trimmed ||
+      trimmed.startsWith("data:") ||
+      trimmed.startsWith("blob:") ||
+      trimmed.startsWith("#") ||
+      trimmed.startsWith(proxyOrigin)
+    ) {
+      return match;
+    }
+    try {
+      const absUrl = new URL(trimmed, baseUrl).href;
+      return `url(${quote}${proxyOrigin}/scors?url=${encodeURIComponent(absUrl)}${quote})`;
+    } catch (_) {
+      return match;
+    }
+  });
+
+  return updated;
+}
+
 export async function syncBanlistFromGithub(env) {
   try {
     if (!env || !env.SCORS_BANLIST) {
@@ -65,66 +103,8 @@ export async function handleScorsRequest(request, env = {}) {
   const reqUrl = new URL(request.url);
   const normalizedPath = reqUrl.pathname.toLowerCase().replace(/\/$/, "");
 
-  // CORS Preflight for Admin API endpoints
-  if (normalizedPath.startsWith("/scors/admin/api") && request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, X-Admin-Secret",
-      },
-    });
-  }
-
-  // Admin API Routing
-  if (normalizedPath.startsWith("/scors/admin/api")) {
-    const adminCorsHeaders = {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    };
-
-    const providedSecret = request.headers.get("X-Admin-Secret") || reqUrl.searchParams.get("secret");
-    if (!env || !env.ADMIN_SECRET || providedSecret !== env.ADMIN_SECRET) {
-      return new Response(JSON.stringify({ error: "Unauthorized: Invalid Admin Secret" }), {
-        status: 401,
-        headers: adminCorsHeaders,
-      });
-    }
-
-    if (normalizedPath === "/scors/admin/api/list" && request.method === "GET") {
-      const list = await env.SCORS_BANLIST.list();
-      const keysWithValues = await Promise.all(
-        list.keys.map(async (k) => {
-          const val = await env.SCORS_BANLIST.get(k.name);
-          return { name: k.name, value: val };
-        })
-      );
-      return new Response(JSON.stringify({ keys: keysWithValues }), { status: 200, headers: adminCorsHeaders });
-    }
-
-    if (normalizedPath === "/scors/admin/api/ban" && request.method === "POST") {
-      const { id, reason } = await request.json();
-      if (!id) return new Response(JSON.stringify({ error: "Missing ID" }), { status: 400, headers: adminCorsHeaders });
-
-      await env.SCORS_BANLIST.put(
-        id,
-        JSON.stringify({ reason: reason || "Manually banned via Admin Panel", bannedAt: new Date().toISOString() })
-      );
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers: adminCorsHeaders });
-    }
-
-    if (normalizedPath === "/scors/admin/api/unban" && request.method === "POST") {
-      const { id } = await request.json();
-      if (!id) return new Response(JSON.stringify({ error: "Missing ID" }), { status: 400, headers: adminCorsHeaders });
-
-      await env.SCORS_BANLIST.delete(id);
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers: adminCorsHeaders });
-    }
-  }
-
   // Filter non-proxy routes
-  if (normalizedPath !== "/scors" && normalizedPath !== "/scorsencrypted" && normalizedPath !== "/scors/sync" && normalizedPath !== "/browse") {
+  if (normalizedPath !== "/scors" && normalizedPath !== "/scorsencrypted" && normalizedPath !== "/browse") {
     return null;
   }
 
@@ -139,20 +119,10 @@ export async function handleScorsRequest(request, env = {}) {
   if (origin !== "*") corsHeaders["Access-Control-Allow-Credentials"] = "true";
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
 
-  // Explicit GitHub Banlist Sync Endpoint
-  if (normalizedPath === "/scors/sync") {
-    const syncResult = await syncBanlistFromGithub(env);
-    return new Response(JSON.stringify(syncResult), {
-      status: syncResult.success ? 200 : 500,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
-  }
-
   // ------------------------------------------------------------------------
   // BROWSER LAUNCHER INTERFACE ROUTE (/browse - Exact match only, no query params)
   // ------------------------------------------------------------------------
   if (normalizedPath === "/browse") {
-    // Strictly reject /browse?anything-right-after
     if (reqUrl.search !== "") {
       return null;
     }
@@ -198,7 +168,7 @@ export async function handleScorsRequest(request, env = {}) {
       e.preventDefault();
       var raw = document.getElementById('targetUrlInput').value.trim();
       if (!raw) return;
-      if (!/^https?:\/\//i.test(raw) && !/^wss?:\/\//i.test(raw)) {
+      if (!/^https?:\\/\\//i.test(raw) && !/^wss?:\\/\\//i.test(raw)) {
         raw = 'https://' + raw;
       }
       window.location.href = window.location.origin + '/scors?url=' + encodeURIComponent(raw);
@@ -253,7 +223,7 @@ export async function handleScorsRequest(request, env = {}) {
       var raw = document.getElementById('targetInput').value.trim();
       if (!raw) return;
 
-      if (!/^https?:\/\//i.test(raw) && !/^wss?:\/\//i.test(raw)) {
+      if (!/^https?:\\/\\//i.test(raw) && !/^wss?:\\/\\//i.test(raw)) {
         raw = 'https://' + raw;
       }
 
@@ -352,7 +322,7 @@ export async function handleScorsRequest(request, env = {}) {
     return new Response(
       JSON.stringify({
         status: 200,
-        service: "SCORS Proxy API",
+        service: "SCORS API",
         state: "operational",
         responseTimeMs: responseTimeMs,
         deviceId: actualDeviceId,
@@ -378,9 +348,9 @@ export async function handleScorsRequest(request, env = {}) {
 
   if (!targetUrlStr) {
     return new Response(
-      JSON.stringify({ 
-        status: "active", 
-        endpoint: "SCORS Proxy API", 
+      JSON.stringify({
+        status: "active",
+        endpoint: "SCORS Proxy API",
         usage: {
           apiCheck: `${reqUrl.pathname}?api`,
           browser: `${reqUrl.origin}/browse`,
@@ -394,7 +364,7 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   targetUrlStr = targetUrlStr.trim();
-  
+
   if (!/^https?:\/\//i.test(targetUrlStr) && !/^wss?:\/\//i.test(targetUrlStr)) {
     const decodedUrl = decodeUrlSafeBase64(targetUrlStr);
     if (decodedUrl && (/^https?:\/\//i.test(decodedUrl) || /^wss?:\/\//i.test(decodedUrl))) {
@@ -416,7 +386,7 @@ export async function handleScorsRequest(request, env = {}) {
     const targetUrl = new URL(targetUrlStr);
 
     reqUrl.searchParams.forEach((value, key) => {
-      if (!["url", "ws", "api", "local_ip", "mac", "secret"].includes(key)) {
+      if (!["url", "ws", "api", "local_ip", "mac"].includes(key)) {
         targetUrl.searchParams.append(key, value);
       }
     });
@@ -426,8 +396,12 @@ export async function handleScorsRequest(request, env = {}) {
       return new Response(JSON.stringify({ error: "Forbidden target host" }), { status: 403, headers: corsHeaders });
     }
 
+    const isStaticAsset = /\.(css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|otf|map|json|mp4|webm|mp3|wav)$/i.test(
+      targetUrl.pathname
+    );
+
     // ------------------------------------------------------------------------
-    // RATE LIMITERS
+    // RATE LIMITER 1: IP Burst Protection (60 req/sec -> 30s temp block)
     // ------------------------------------------------------------------------
     if (env && env.SCORS_BANLIST) {
       const now = Date.now();
@@ -452,7 +426,7 @@ export async function handleScorsRequest(request, env = {}) {
       const currentCountStr = await env.SCORS_BANLIST.get(ipRateKey);
       const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
 
-      if (currentCount >= 5) {
+      if (currentCount >= 60) {
         await env.SCORS_BANLIST.put(ipBlockKey, now.toString(), { expirationTtl: 60 });
         return new Response(
           JSON.stringify({
@@ -466,7 +440,10 @@ export async function handleScorsRequest(request, env = {}) {
       }
     }
 
-    if (env && env.SCORS_BANLIST) {
+    // ------------------------------------------------------------------------
+    // RATE LIMITER 2: Target URL Limiter (Non-asset navigations: 1 req / 10 sec)
+    // ------------------------------------------------------------------------
+    if (env && env.SCORS_BANLIST && !isStaticAsset) {
       const now = Date.now();
       const safeUrlKey = `rate:url:${btoa(targetUrl.href).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100)}`;
       const lastReqTimeStr = await env.SCORS_BANLIST.get(safeUrlKey);
@@ -502,6 +479,10 @@ export async function handleScorsRequest(request, env = {}) {
     // ------------------------------------------------------------------------
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
+    modifiedHeaders.set("Referer", targetUrl.href);
+    if (modifiedHeaders.has("Origin")) {
+      modifiedHeaders.set("Origin", targetUrl.origin);
+    }
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
     modifiedHeaders.set("SCORS-Unique-Device-ID", actualDeviceId);
 
@@ -556,9 +537,24 @@ export async function handleScorsRequest(request, env = {}) {
     const contentType = responseHeaders.get("content-type") || "";
 
     // ------------------------------------------------------------------------
-    // HTML Transformation Engine (Injects Floating Browser Icon & JS Patches)
+    // CSS Transformation Engine (External Stylesheets)
+    // ------------------------------------------------------------------------
+    if (contentType.includes("text/css")) {
+      const rawCss = await response.text();
+      const rewrittenCss = rewriteCssUrls(rawCss, targetUrl.href, reqUrl.origin);
+      responseHeaders.delete("content-length");
+      return new Response(rewrittenCss, {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+
+    // ------------------------------------------------------------------------
+    // HTML Transformation Engine (Injects Floating Browser Icon, CSS & JS Patches)
     // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
+      let styleBuffer = "";
+
       const rewriter = new HTMLRewriter()
         .on("head", {
           element(element) {
@@ -570,10 +566,51 @@ export async function handleScorsRequest(request, env = {}) {
                   var PROXY_ORIGIN = "${reqUrl.origin}";
                   var TARGET_FULL = "${targetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
 
+                  function proxyAssetUrl(u) {
+                    if (!u || typeof u !== 'string') return u;
+                    if (u.startsWith(PROXY_ORIGIN) || u.startsWith('data:') || u.startsWith('blob:') || u.startsWith('javascript:')) {
+                      return u;
+                    }
+                    try {
+                      var absUrl = new URL(u, TARGET_FULL).href;
+                      return PROXY_ORIGIN + '/scors?url=' + encodeURIComponent(absUrl);
+                    } catch (e) {
+                      return u;
+                    }
+                  }
+
+                  var linkHrefDesc = Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype, 'href');
+                  if (linkHrefDesc && linkHrefDesc.set) {
+                    Object.defineProperty(HTMLLinkElement.prototype, 'href', {
+                      get: linkHrefDesc.get,
+                      set: function(val) {
+                        var rel = (this.getAttribute('rel') || '').toLowerCase();
+                        if (rel.indexOf('icon') !== -1) {
+                          return linkHrefDesc.set.call(this, PROXY_ORIGIN + '/favicon.ico');
+                        }
+                        return linkHrefDesc.set.call(this, proxyAssetUrl(val));
+                      }
+                    });
+                  }
+
+                  var scriptSrcDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+                  if (scriptSrcDesc && scriptSrcDesc.set) {
+                    Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+                      get: scriptSrcDesc.get,
+                      set: function(val) {
+                        return scriptSrcDesc.set.call(this, proxyAssetUrl(val));
+                      }
+                    });
+                  }
+
                   var origSetAttr = Element.prototype.setAttribute;
                   Element.prototype.setAttribute = function(name, val) {
-                    if (this.tagName === 'LINK' && (this.getAttribute('rel') || '').toLowerCase().indexOf('icon') !== -1 && name.toLowerCase() === 'href') {
-                      val = PROXY_ORIGIN + '/favicon.ico';
+                    var attr = name.toLowerCase();
+                    if (this.tagName === 'LINK' && attr === 'href') {
+                      var rel = (this.getAttribute('rel') || '').toLowerCase();
+                      val = rel.indexOf('icon') !== -1 ? (PROXY_ORIGIN + '/favicon.ico') : proxyAssetUrl(val);
+                    } else if ((this.tagName === 'SCRIPT' || this.tagName === 'IMG' || this.tagName === 'IFRAME') && attr === 'src') {
+                      val = proxyAssetUrl(val);
                     }
                     return origSetAttr.call(this, name, val);
                   };
@@ -630,12 +667,33 @@ export async function handleScorsRequest(request, env = {}) {
             );
           },
         })
+        .on("style", {
+          element() {
+            styleBuffer = "";
+          },
+          text(chunk) {
+            styleBuffer += chunk.text;
+            if (chunk.lastInTextNode) {
+              chunk.replace(rewriteCssUrls(styleBuffer, targetUrl.href, reqUrl.origin), { html: false });
+              styleBuffer = "";
+            } else {
+              chunk.remove();
+            }
+          },
+        })
+        .on("[style]", {
+          element(element) {
+            const inlineStyle = element.getAttribute("style");
+            if (inlineStyle && inlineStyle.includes("url(")) {
+              element.setAttribute("style", rewriteCssUrls(inlineStyle, targetUrl.href, reqUrl.origin));
+            }
+          },
+        })
         .on("body", {
           element(element) {
-            // Injects bottom-left floating transparent gray button overlaying /assets/browsericon.png
             element.append(
-              `<a href="https://github.com/z6sGD/SCORS" id="scors-browser-float-btn" title="Support this project on GitHub" style="position:fixed;bottom:16px;left:16px;z-index:2147483647;width:48px;height:48px;background:rgba(30,41,59,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);transition:all 0.2s ease;text-decoration:none;" onmouseover="this.style.background='rgba(30,41,59,0.95)';this.style.transform='scale(1.08)';" onmouseout="this.style.background='rgba(30,41,59,0.75)';this.style.transform='scale(1)';">
-                <img src="https://github.com/favicon.ico" alt="GitHub Repo" style="width:24px;height:24px;object-fit:contain;display:block;" />
+              `<a href="${reqUrl.origin}/browse" id="scors-browser-float-btn" title="SCORS Browser Home" style="position:fixed;bottom:16px;left:16px;z-index:2147483647;width:48px;height:48px;background:rgba(30,41,59,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);transition:all 0.2s ease;text-decoration:none;" onmouseover="this.style.background='rgba(30,41,59,0.95)';this.style.transform='scale(1.08)';" onmouseout="this.style.background='rgba(30,41,59,0.75)';this.style.transform='scale(1)';">
+                <img src="${reqUrl.origin}/assets/browsericon.png" alt="Browser Icon" style="width:24px;height:24px;object-fit:contain;display:block;" />
               </a>`,
               { html: true }
             );
