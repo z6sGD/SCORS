@@ -48,22 +48,44 @@
       text-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
     }
 
-    .overlay p {
-      font-size: 1.25rem;
-      margin-top: 10px;
+    #sound-hint {
+      font-size: 1rem;
+      margin-top: 14px;
+      opacity: 0.8;
       text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+      transition: opacity 0.4s ease;
     }
   </style>
 </head>
 <body>
 
-  <video class="bg-video" autoplay loop playsinline>
+  <video id="bg-video" class="bg-video" autoplay muted loop playsinline>
     <source src="/assets/Pirate%20Token%20-%20Juice%20WRLD%20(Lyric%20Video).mp4" type="video/mp4">
   </video>
 
   <div class="overlay">
     <h1>uh oh 404</h1>
+    <p id="sound-hint">press any key for the pirate token</p>
   </div>
+
+  <script>
+    const video = document.getElementById('bg-video');
+    const hint = document.getElementById('sound-hint');
+    const activationEvents = ['click', 'keydown', 'touchstart'];
+
+    function unlockAudio() {
+      video.muted = false;
+      video.play().then(() => {
+        hint.style.opacity = '0';
+        activationEvents.forEach(evt => document.removeEventListener(evt, unlockAudio));
+      }).catch(() => {
+        video.muted = true;
+        video.play();
+      });
+    }
+
+    activationEvents.forEach(evt => document.addEventListener(evt, unlockAudio));
+  </script>
 
 </body>
 </html>
