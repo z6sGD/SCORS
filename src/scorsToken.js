@@ -1,5 +1,8 @@
 // src/scorsToken.js
 
+// To know how this system works, please go to "scorsToken Explained.md" in tree/main.
+// Go to this link if you can't find the file https://github.com/z6sGD/SCORS/blob/main/scorsToken%20Explained.md
+
 const QWERTY_MID = ["a", "s", "d", "f", "g", "h", "j", "k", "l"];
 
 const ZERO_SYMBOLS = [
