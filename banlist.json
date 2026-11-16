@@ -10,5 +10,9 @@
   {
     "id": "172.86.66.101",
     "reason": "This IP address has been blocked by the SCORS team for suspicious activity (Sending 40,000 requests in the span of 2 hours)."
+  },
+  {
+    "id": "188.253.7.105",
+    "reason": "This IP address had been blocked by the SCORS team in violations of ToS rule 7. \"We, SCORS, can deny service to anyone who sends too many requests at a time.\"."
   }
 ]
