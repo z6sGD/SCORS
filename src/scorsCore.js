@@ -34,10 +34,39 @@ function decodeHtmlEntities(str) {
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
+function getIpv6Prefix64(ipStr) {
+  const cleaned = (ipStr || "").trim().toLowerCase();
+  if (!cleaned.includes(":")) return null;
+
+  if (cleaned.startsWith("::ffff:") && cleaned.includes(".")) {
+    return null;
+  }
+
+  let segments = [];
+  if (cleaned.includes("::")) {
+    const parts = cleaned.split("::");
+    if (parts.length > 2) return null;
+    const leftParts = parts[0] ? parts[0].split(":") : [];
+    const rightParts = parts[1] ? parts[1].split(":") : [];
+    const missing = 8 - (leftParts.length + rightParts.length);
+    if (missing < 0) return null;
+    segments = [...leftParts, ...Array(missing).fill("0"), ...rightParts];
+  } else {
+    segments = cleaned.split(":");
+  }
+
+  if (segments.length !== 8) return null;
+  const normalizedPrefix = segments
+    .slice(0, 4)
+    .map((seg) => (parseInt(seg, 16) || 0).toString(16))
+    .join(":");
+
+  return `${normalizedPrefix}::/64`;
+}
+
 function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
   if (!cssText) return cssText;
 
-  // Rewrite @import "..." or @import '...'
   let updated = cssText.replace(/@import\s+(["'])([^"']+)\1/gi, (match, quote, importUrl) => {
     const trimmed = importUrl.trim();
     if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith(proxyOrigin)) return match;
@@ -49,7 +78,6 @@ function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
     }
   });
 
-  // Rewrite all url(...) references (covers @import url(...), fonts, background images, etc.)
   updated = updated.replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi, (match, quote, assetUrl) => {
     const trimmed = assetUrl.trim();
     if (
@@ -85,7 +113,7 @@ export async function syncBanlistFromGithub(env) {
 
     for (const item of bannedItems) {
       let banId = "";
-      let customReason = "Device listed in SCORS ToS banlist.";
+      let customReason = "Device or IP listed in SCORS ToS banlist.";
 
       if (typeof item === "string") {
         banId = item;
@@ -95,8 +123,9 @@ export async function syncBanlistFromGithub(env) {
       }
 
       if (banId) {
+        const normalizedKey = banId.includes(":") ? banId.trim().toLowerCase() : banId.trim();
         await env.SCORS_BANLIST.put(
-          banId,
+          normalizedKey,
           JSON.stringify({
             reason: customReason,
             syncedAt: new Date().toISOString(),
@@ -115,7 +144,6 @@ export async function handleScorsRequest(request, env = {}) {
   const reqUrl = new URL(request.url);
   const normalizedPath = reqUrl.pathname.toLowerCase().replace(/\/$/, "");
 
-  // Filter non-proxy routes
   if (normalizedPath !== "/scors" && normalizedPath !== "/scorsencrypted" && normalizedPath !== "/browse") {
     return null;
   }
@@ -131,9 +159,6 @@ export async function handleScorsRequest(request, env = {}) {
   if (origin !== "*") corsHeaders["Access-Control-Allow-Credentials"] = "true";
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
 
-  // ------------------------------------------------------------------------
-  // BROWSER LAUNCHER INTERFACE ROUTE (/browse - Exact match only, no query params)
-  // ------------------------------------------------------------------------
   if (normalizedPath === "/browse") {
     if (reqUrl.search !== "") {
       return null;
@@ -195,9 +220,6 @@ export async function handleScorsRequest(request, env = {}) {
     });
   }
 
-  // ------------------------------------------------------------------------
-  // ENCRYPTED URL UI & GENERATOR ROUTE (/scorsencrypted)
-  // ------------------------------------------------------------------------
   if (normalizedPath === "/scorsencrypted") {
     let rawUrl = reqUrl.searchParams.get("url") || reqUrl.searchParams.get("ws");
 
@@ -268,10 +290,8 @@ export async function handleScorsRequest(request, env = {}) {
   const isApiCheckReq = reqUrl.searchParams.has("api");
   const isWebSocketReq = (request.headers.get("Upgrade") || "").toLowerCase() === "websocket";
 
-  // ------------------------------------------------------------------------
-  // Device Fingerprinting & Ban Evaluation
-  // ------------------------------------------------------------------------
-  const publicIp = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "127.0.0.1";
+  const rawPublicIp = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "127.0.0.1";
+  const publicIp = rawPublicIp.split(",")[0].trim();
   const localIp = request.headers.get("x-local-ip") || reqUrl.searchParams.get("local_ip") || "10.0.0.1";
   const macAddr = request.headers.get("x-mac-address") || reqUrl.searchParams.get("mac") || "";
   const userAgent = request.headers.get("user-agent") || "";
@@ -287,9 +307,16 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   if (env && env.SCORS_BANLIST) {
-    const banRecord = await env.SCORS_BANLIST.get(actualDeviceId);
+    const cleanIp = publicIp.toLowerCase();
+    const ipv6Prefix = getIpv6Prefix64(cleanIp);
+
+    const banRecord =
+      (await env.SCORS_BANLIST.get(actualDeviceId)) ||
+      (await env.SCORS_BANLIST.get(cleanIp)) ||
+      (ipv6Prefix ? await env.SCORS_BANLIST.get(ipv6Prefix) : null);
+
     if (banRecord !== null) {
-      let banReason = "Device listed in SCORS ToS banlist.";
+      let banReason = "Device or IP listed in SCORS ToS banlist.";
 
       try {
         const parsedRecord = JSON.parse(banRecord);
@@ -313,9 +340,6 @@ export async function handleScorsRequest(request, env = {}) {
     }
   }
 
-  // ------------------------------------------------------------------------
-  // SELF HEALTH / API CHECK ROUTE (/scors?api)
-  // ------------------------------------------------------------------------
   if (isApiCheckReq) {
     const startTime = performance.now();
 
@@ -353,9 +377,6 @@ export async function handleScorsRequest(request, env = {}) {
     );
   }
 
-  // ------------------------------------------------------------------------
-  // TARGET URL SELECTION & DECRYPTION ENGINE
-  // ------------------------------------------------------------------------
   let targetUrlStr = reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
 
   if (!targetUrlStr) {
@@ -416,9 +437,6 @@ export async function handleScorsRequest(request, env = {}) {
         targetUrl.pathname
       );
 
-    // ------------------------------------------------------------------------
-    // RATE LIMITER 1: IP Burst Protection (60 req/sec -> 30s temp block)
-    // ------------------------------------------------------------------------
     if (env && env.SCORS_BANLIST) {
       const now = Date.now();
       const ipBlockKey = `block:ip:${publicIp}`;
@@ -456,9 +474,6 @@ export async function handleScorsRequest(request, env = {}) {
       }
     }
 
-    // ------------------------------------------------------------------------
-    // RATE LIMITER 2: Target URL Limiter (Non-asset navigations: 1 req / 10 sec)
-    // ------------------------------------------------------------------------
     if (env && env.SCORS_BANLIST && !isStaticAsset) {
       const now = Date.now();
       const safeUrlKey = `rate:url:${btoa(targetUrl.href).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100)}`;
@@ -490,9 +505,6 @@ export async function handleScorsRequest(request, env = {}) {
       await env.SCORS_BANLIST.put(safeUrlKey, now.toString(), { expirationTtl: 60 });
     }
 
-    // ------------------------------------------------------------------------
-    // Header Normalization & Cookie Stripping (Stateless Engine)
-    // ------------------------------------------------------------------------
     const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.set("Host", targetUrl.host);
     modifiedHeaders.set("Referer", targetUrl.href);
@@ -521,16 +533,10 @@ export async function handleScorsRequest(request, env = {}) {
       fetchOpts.duplex = "half";
     }
 
-    // ------------------------------------------------------------------------
-    // WEBSOCKET HANDSHAKE ROUTE
-    // ------------------------------------------------------------------------
     if (isWebSocketReq || reqUrl.searchParams.has("ws")) {
       return fetch(targetUrl.href, fetchOpts);
     }
 
-    // ------------------------------------------------------------------------
-    // OUTBOUND EXECUTION
-    // ------------------------------------------------------------------------
     let response;
 
     if (env && env.PROXY_HOST && env.PROXY_PORT) {
@@ -557,9 +563,6 @@ export async function handleScorsRequest(request, env = {}) {
 
     const contentType = responseHeaders.get("content-type") || "";
 
-    // ------------------------------------------------------------------------
-    // CSS Transformation Engine (External Stylesheets)
-    // ------------------------------------------------------------------------
     if (contentType.includes("text/css")) {
       const rawCss = await response.text();
       const rewrittenCss = rewriteCssUrls(rawCss, finalTargetUrl.href, reqUrl.origin);
@@ -571,9 +574,6 @@ export async function handleScorsRequest(request, env = {}) {
       });
     }
 
-    // ------------------------------------------------------------------------
-    // HTML Transformation Engine (Injects Floating GitHub Button, CSS & JS Patches)
-    // ------------------------------------------------------------------------
     if (contentType.includes("text/html")) {
       let styleBuffer = "";
 
