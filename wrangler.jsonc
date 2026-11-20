@@ -12,6 +12,8 @@
   "observability": {
     "enabled": true
   },
+  {
+  // ...
   "kv_namespaces": [
     {
       "binding": "SCORS_BANLIST",
@@ -22,6 +24,7 @@
       "id": "f0dc7c93fac249ed93ea34558d0f5ced"
     }
   ],
+  },
   "triggers": {
     "crons": [
       "0 1,5,9,13,17,21 * * *"
