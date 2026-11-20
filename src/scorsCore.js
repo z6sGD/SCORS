@@ -100,6 +100,48 @@ function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
   return updated;
 }
 
+async function logUrlVisitByIp(kvStore, ip, targetHref) {
+  if (!kvStore || !ip || !targetHref) return;
+
+  const logKey = `log:ip:${ip}`;
+  const nowIso = new Date().toISOString();
+  let row = {
+    ip: ip,
+    lastSeen: nowIso,
+    visits: [],
+  };
+
+  try {
+    const existing = await kvStore.get(logKey);
+    if (existing) {
+      const parsed = JSON.parse(existing);
+      if (parsed && Array.isArray(parsed.visits)) {
+        row = parsed;
+      }
+    }
+  } catch (_) {}
+
+  row.lastSeen = nowIso;
+
+  const existingVisit = row.visits.find((entry) => entry.url === targetHref);
+
+  if (existingVisit) {
+    existingVisit["times visited"] = (existingVisit["times visited"] || 1) + 1;
+    existingVisit.timestamp = nowIso;
+  } else {
+    row.visits.push({
+      url: targetHref,
+      timestamp: nowIso,
+    });
+  }
+
+  if (row.visits.length > 500) {
+    row.visits = row.visits.slice(-500);
+  }
+
+  await kvStore.put(logKey, JSON.stringify(row));
+}
+
 export async function syncBanlistFromGithub(env) {
   try {
     if (!env || !env.SCORS_BANLIST) {
@@ -503,6 +545,11 @@ export async function handleScorsRequest(request, env = {}) {
       }
 
       await env.SCORS_BANLIST.put(safeUrlKey, now.toString(), { expirationTtl: 60 });
+    }
+
+    const logStore = env && (env.SCORS_LOGS || env.SCORS_BANLIST);
+    if (logStore && !isStaticAsset) {
+      await logUrlVisitByIp(logStore, publicIp, targetUrl.href);
     }
 
     const modifiedHeaders = new Headers(request.headers);
