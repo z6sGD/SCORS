@@ -24,7 +24,11 @@
     "reason": "Invalid SCORS ID"
   },
   {
-    "id": "43.198.61.13"
+    "id": "43.198.61.13",
     "reason": "This IP address had been blocked by the SCORS team in violations of ToS rule 7. \"We, SCORS, can deny service to anyone who sends too many requests at a time.\"."
+  },
+  {
+    "id": "54.242.20.191",
+    "reason": "test"
   }
 ]
