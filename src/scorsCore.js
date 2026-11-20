@@ -3,6 +3,11 @@ import { fetchViaSocketProxy } from "./socketProxy.js";
 
 const GITHUB_BANLIST_URL = "https://raw.githubusercontent.com/z6sGD/SCORS/main/banlist.json";
 
+// In-memory rate-limit stores so short-lived counters don't burn Cloudflare KV daily put() limits
+const ipBlockMap = new Map();
+const ipRateMap = new Map();
+const urlRateMap = new Map();
+
 function encodeUrlSafeBase64(str) {
   return btoa(encodeURIComponent(str))
     .replace(/\+/g, "-")
@@ -132,43 +137,47 @@ function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
 async function logUrlVisitByIp(kvStore, ip, targetHref) {
   if (!kvStore || !ip || !targetHref) return;
 
-  const logKey = `log:ip:${ip}`;
-  const nowIso = new Date().toISOString();
-  let row = {
-    ip: ip,
-    lastSeen: nowIso,
-    visits: [],
-  };
-
   try {
-    const existing = await kvStore.get(logKey);
-    if (existing) {
-      const parsed = JSON.parse(existing);
-      if (parsed && Array.isArray(parsed.visits)) {
-        row = parsed;
+    const logKey = `log:ip:${ip}`;
+    const nowIso = new Date().toISOString();
+    let row = {
+      ip: ip,
+      lastSeen: nowIso,
+      visits: [],
+    };
+
+    try {
+      const existing = await kvStore.get(logKey);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (parsed && Array.isArray(parsed.visits)) {
+          row = parsed;
+        }
       }
+    } catch (_) {}
+
+    row.lastSeen = nowIso;
+
+    const existingVisit = row.visits.find((entry) => entry.url === targetHref);
+
+    if (existingVisit) {
+      existingVisit["times visited"] = (existingVisit["times visited"] || 1) + 1;
+      existingVisit.timestamp = nowIso;
+    } else {
+      row.visits.push({
+        url: targetHref,
+        timestamp: nowIso,
+      });
     }
-  } catch (_) {}
 
-  row.lastSeen = nowIso;
+    if (row.visits.length > 500) {
+      row.visits = row.visits.slice(-500);
+    }
 
-  const existingVisit = row.visits.find((entry) => entry.url === targetHref);
-
-  if (existingVisit) {
-    existingVisit["times visited"] = (existingVisit["times visited"] || 1) + 1;
-    existingVisit.timestamp = nowIso;
-  } else {
-    row.visits.push({
-      url: targetHref,
-      timestamp: nowIso,
-    });
+    await kvStore.put(logKey, JSON.stringify(row));
+  } catch (_) {
+    // Gracefully skip logging if daily KV put() quota is exhausted
   }
-
-  if (row.visits.length > 500) {
-    row.visits = row.visits.slice(-500);
-  }
-
-  await kvStore.put(logKey, JSON.stringify(row));
 }
 
 export async function syncBanlistFromGithub(env) {
@@ -181,6 +190,7 @@ export async function syncBanlistFromGithub(env) {
     if (!res.ok) throw new Error(`GitHub fetch failed with status ${res.status}`);
 
     const bannedItems = await res.json();
+    let writtenCount = 0;
 
     for (const item of bannedItems) {
       let banId = "";
@@ -195,17 +205,21 @@ export async function syncBanlistFromGithub(env) {
 
       if (banId) {
         const normalizedKey = banId.includes(":") ? banId.trim().toLowerCase() : banId.trim();
-        await env.SCORS_BANLIST.put(
-          normalizedKey,
-          JSON.stringify({
-            reason: customReason,
-            syncedAt: new Date().toISOString(),
-          })
-        );
+        const existing = await env.SCORS_BANLIST.get(normalizedKey);
+        if (!existing) {
+          await env.SCORS_BANLIST.put(
+            normalizedKey,
+            JSON.stringify({
+              reason: customReason,
+              syncedAt: new Date().toISOString(),
+            })
+          );
+          writtenCount++;
+        }
       }
     }
 
-    return { success: true, count: bannedItems.length };
+    return { success: true, count: bannedItems.length, written: writtenCount };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -378,37 +392,39 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   if (env && env.SCORS_BANLIST) {
-    const cleanIp = publicIp.toLowerCase();
-    const ipv6Prefix = getIpv6Prefix64(cleanIp);
+    try {
+      const cleanIp = publicIp.toLowerCase();
+      const ipv6Prefix = getIpv6Prefix64(cleanIp);
 
-    const banRecord =
-      (await env.SCORS_BANLIST.get(actualDeviceId)) ||
-      (await env.SCORS_BANLIST.get(cleanIp)) ||
-      (ipv6Prefix ? await env.SCORS_BANLIST.get(ipv6Prefix) : null);
+      const banRecord =
+        (await env.SCORS_BANLIST.get(actualDeviceId)) ||
+        (await env.SCORS_BANLIST.get(cleanIp)) ||
+        (ipv6Prefix ? await env.SCORS_BANLIST.get(ipv6Prefix) : null);
 
-    if (banRecord !== null) {
-      let banReason = "Device or IP listed in SCORS ToS banlist.";
+      if (banRecord !== null) {
+        let banReason = "Device or IP listed in SCORS ToS banlist.";
 
-      try {
-        const parsedRecord = JSON.parse(banRecord);
-        if (parsedRecord && parsedRecord.reason) {
-          banReason = parsedRecord.reason;
+        try {
+          const parsedRecord = JSON.parse(banRecord);
+          if (parsedRecord && parsedRecord.reason) {
+            banReason = parsedRecord.reason;
+          }
+        } catch (_) {
+          if (typeof banRecord === "string" && banRecord.length > 0 && !banRecord.startsWith("{")) {
+            banReason = banRecord;
+          }
         }
-      } catch (_) {
-        if (typeof banRecord === "string" && banRecord.length > 0 && !banRecord.startsWith("{")) {
-          banReason = banRecord;
-        }
+
+        return new Response(
+          JSON.stringify({
+            error: "Access Denied",
+            reason: banReason,
+            deviceId: actualDeviceId,
+          }),
+          { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
       }
-
-      return new Response(
-        JSON.stringify({
-          error: "Access Denied",
-          reason: banReason,
-          deviceId: actualDeviceId,
-        }),
-        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
-    }
+    } catch (_) {}
   }
 
   if (isApiCheckReq) {
@@ -480,7 +496,6 @@ export async function handleScorsRequest(request, env = {}) {
     }
   }
 
-  // Unwrap any accidentally double-wrapped proxy URLs before fetching
   targetUrlStr = unwrapProxyUrl(targetUrlStr, reqUrl.origin);
 
   if (targetUrlStr.startsWith("ws://")) {
@@ -492,7 +507,6 @@ export async function handleScorsRequest(request, env = {}) {
   try {
     const targetUrl = new URL(targetUrlStr);
 
-    // Block infinite self-proxy loops
     if (targetUrl.origin === reqUrl.origin) {
       return new Response(
         JSON.stringify({ error: "Recursive proxy loop blocked" }),
@@ -519,31 +533,24 @@ export async function handleScorsRequest(request, env = {}) {
         targetUrl.pathname
       );
 
-    if (env && env.SCORS_BANLIST) {
-      const now = Date.now();
-      const ipBlockKey = `block:ip:${publicIp}`;
-      const blockedAtStr = await env.SCORS_BANLIST.get(ipBlockKey);
+    // Zero-KV in-memory rate limiting (preserves daily KV put() quota)
+    const now = Date.now();
+    const blockedAt = ipBlockMap.get(publicIp);
+    if (blockedAt && now - blockedAt < 30000) {
+      return new Response(
+        JSON.stringify({
+          error: "Access Denied",
+          reason: "You have been temporarily blocked from sending requests because you have sent too many requests in one second."
+        }),
+        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
 
-      if (blockedAtStr) {
-        const blockedAt = parseInt(blockedAtStr, 10);
-        if (now - blockedAt < 30000) {
-          return new Response(
-            JSON.stringify({
-              error: "Access Denied",
-              reason: "You have been temporarily blocked from sending requests because you have sent too many requests in one second."
-            }),
-            { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
-          );
-        }
-      }
-
-      const currentSecond = Math.floor(now / 1000);
-      const ipRateKey = `rate:ip:${publicIp}:${currentSecond}`;
-      const currentCountStr = await env.SCORS_BANLIST.get(ipRateKey);
-      const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
-
-      if (currentCount >= 60) {
-        await env.SCORS_BANLIST.put(ipBlockKey, now.toString(), { expirationTtl: 60 });
+    const currentSecond = Math.floor(now / 1000);
+    const rateEntry = ipRateMap.get(publicIp);
+    if (rateEntry && rateEntry.sec === currentSecond) {
+      if (rateEntry.count >= 60) {
+        ipBlockMap.set(publicIp, now);
         return new Response(
           JSON.stringify({
             error: "Access Denied",
@@ -551,40 +558,33 @@ export async function handleScorsRequest(request, env = {}) {
           }),
           { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
-      } else {
-        await env.SCORS_BANLIST.put(ipRateKey, (currentCount + 1).toString(), { expirationTtl: 60 });
       }
+      rateEntry.count += 1;
+    } else {
+      ipRateMap.set(publicIp, { sec: currentSecond, count: 1 });
     }
 
-    if (env && env.SCORS_BANLIST && !isStaticAsset) {
-      const now = Date.now();
-      const safeUrlKey = `rate:url:${btoa(targetUrl.href).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100)}`;
-      const lastReqTimeStr = await env.SCORS_BANLIST.get(safeUrlKey);
-
-      if (lastReqTimeStr) {
-        const lastReqTime = parseInt(lastReqTimeStr, 10);
-        const elapsedMs = now - lastReqTime;
-
-        if (elapsedMs < 10000) {
-          const remainingSeconds = Math.ceil((10000 - elapsedMs) / 1000);
-          return new Response(
-            JSON.stringify({
-              error: "Too Many Requests",
-              reason: `You have been sending too many requests, try again in ${remainingSeconds} seconds.`
-            }),
-            {
-              status: 429,
-              headers: {
-                "Content-Type": "application/json",
-                "Retry-After": remainingSeconds.toString(),
-                ...corsHeaders,
-              },
-            }
-          );
-        }
+    if (!isStaticAsset) {
+      const urlLimitKey = `${publicIp}:${targetUrl.href}`;
+      const lastReqTime = urlRateMap.get(urlLimitKey);
+      if (lastReqTime && now - lastReqTime < 10000) {
+        const remainingSeconds = Math.ceil((10000 - (now - lastReqTime)) / 1000);
+        return new Response(
+          JSON.stringify({
+            error: "Too Many Requests",
+            reason: `You have been sending too many requests, try again in ${remainingSeconds} seconds.`
+          }),
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/json",
+              "Retry-After": remainingSeconds.toString(),
+              ...corsHeaders,
+            },
+          }
+        );
       }
-
-      await env.SCORS_BANLIST.put(safeUrlKey, now.toString(), { expirationTtl: 60 });
+      urlRateMap.set(urlLimitKey, now);
     }
 
     const logStore = env && (env.SCORS_LOGS || env.SCORS_BANLIST);
@@ -592,7 +592,7 @@ export async function handleScorsRequest(request, env = {}) {
       await logUrlVisitByIp(logStore, publicIp, targetUrl.href);
     }
 
-const modifiedHeaders = new Headers(request.headers);
+    const modifiedHeaders = new Headers(request.headers);
     modifiedHeaders.delete("host");
     modifiedHeaders.set("Referer", targetUrl.href);
     if (modifiedHeaders.has("Origin")) {
@@ -637,22 +637,17 @@ const modifiedHeaders = new Headers(request.headers);
     let response;
 
     if (env && env.PROXY_HOST && env.PROXY_PORT) {
-      try {
-        const proxyConfig = {
-          host: env.PROXY_HOST,
-          port: parseInt(env.PROXY_PORT, 10),
-          username: env.PROXY_USER || "",
-          password: env.PROXY_PASS || "",
-        };
-        response = await fetchViaSocketProxy(targetUrl, fetchOpts, proxyConfig);
-      } catch (socketErr) {
-        response = await fetch(targetUrl.href, fetchOpts);
-      }
+      const proxyConfig = {
+        host: env.PROXY_HOST,
+        port: parseInt(env.PROXY_PORT, 10),
+        username: env.PROXY_USER || "",
+        password: env.PROXY_PASS || "",
+      };
+      response = await fetchViaSocketProxy(targetUrl, fetchOpts, proxyConfig);
     } else {
       response = await fetch(targetUrl.href, fetchOpts);
     }
 
-    // Cleanly rewrite upstream 3xx redirects so they route through the proxy once without looping
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const rawLocation = response.headers.get("Location");
       if (rawLocation) {
@@ -746,7 +741,6 @@ const modifiedHeaders = new Headers(request.headers);
                     }
                   }
 
-                  // Unwrap document.currentScript.src so scripts like largeEPK.js don't fail getParentUrl()
                   var currentScriptDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'currentScript');
                   if (currentScriptDesc && currentScriptDesc.get) {
                     Object.defineProperty(document, 'currentScript', {
