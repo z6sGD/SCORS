@@ -64,6 +64,35 @@ function getIpv6Prefix64(ipStr) {
   return `${normalizedPrefix}::/64`;
 }
 
+function unwrapProxyUrl(rawUrl, proxyOrigin, fallbackBase = undefined) {
+  if (!rawUrl || typeof rawUrl !== "string") return rawUrl;
+  try {
+    let current = fallbackBase ? new URL(rawUrl, fallbackBase) : new URL(rawUrl);
+    let guard = 0;
+    while (
+      current.origin === proxyOrigin &&
+      current.pathname.toLowerCase().replace(/\/$/, "") === "/scors" &&
+      (current.searchParams.has("url") || current.searchParams.has("ws")) &&
+      guard < 6
+    ) {
+      const inner = current.searchParams.get("url") || current.searchParams.get("ws");
+      if (!inner) break;
+      let decodedInner = inner.trim();
+      if (!/^https?:\/\//i.test(decodedInner) && !/^wss?:\/\//i.test(decodedInner)) {
+        const b64 = decodeUrlSafeBase64(decodedInner);
+        decodedInner = b64 && (/^https?:\/\//i.test(b64) || /^wss?:\/\//i.test(b64))
+          ? b64
+          : `https://${decodedInner}`;
+      }
+      current = new URL(decodedInner);
+      guard++;
+    }
+    return current.href;
+  } catch (_) {
+    return rawUrl;
+  }
+}
+
 function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
   if (!cssText) return cssText;
 
@@ -71,7 +100,7 @@ function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
     const trimmed = importUrl.trim();
     if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith(proxyOrigin)) return match;
     try {
-      const absUrl = new URL(trimmed, baseUrl).href;
+      const absUrl = unwrapProxyUrl(new URL(trimmed, baseUrl).href, proxyOrigin);
       return `@import ${quote}${proxyOrigin}/scors?url=${encodeURIComponent(absUrl)}${quote}`;
     } catch (_) {
       return match;
@@ -90,7 +119,7 @@ function rewriteCssUrls(cssText, baseUrl, proxyOrigin) {
       return match;
     }
     try {
-      const absUrl = new URL(trimmed, baseUrl).href;
+      const absUrl = unwrapProxyUrl(new URL(trimmed, baseUrl).href, proxyOrigin);
       return `url(${quote}${proxyOrigin}/scors?url=${encodeURIComponent(absUrl)}${quote})`;
     } catch (_) {
       return match;
@@ -451,6 +480,9 @@ export async function handleScorsRequest(request, env = {}) {
     }
   }
 
+  // Unwrap any accidentally double-wrapped proxy URLs before fetching
+  targetUrlStr = unwrapProxyUrl(targetUrlStr, reqUrl.origin);
+
   if (targetUrlStr.startsWith("ws://")) {
     targetUrlStr = targetUrlStr.replace(/^ws:\/\//i, "http://");
   } else if (targetUrlStr.startsWith("wss://")) {
@@ -459,6 +491,14 @@ export async function handleScorsRequest(request, env = {}) {
 
   try {
     const targetUrl = new URL(targetUrlStr);
+
+    // Block infinite self-proxy loops
+    if (targetUrl.origin === reqUrl.origin) {
+      return new Response(
+        JSON.stringify({ error: "Recursive proxy loop blocked" }),
+        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
 
     reqUrl.searchParams.forEach((value, key) => {
       if (!["url", "ws", "api", "local_ip", "mac"].includes(key)) {
@@ -475,7 +515,7 @@ export async function handleScorsRequest(request, env = {}) {
     const isStaticAsset =
       ["style", "script", "image", "font", "audio", "video"].includes(fetchDest) ||
       targetUrl.pathname.endsWith("/load.php") ||
-      /\.(css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|otf|map|json|mp4|webm|mp3|wav)$/i.test(
+      /\.(css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|otf|map|json|mp4|webm|mp3|wav|epk|wasm|bin|data|zip|gz)$/i.test(
         targetUrl.pathname
       );
 
@@ -572,7 +612,7 @@ export async function handleScorsRequest(request, env = {}) {
     const fetchOpts = {
       method: request.method,
       headers: modifiedHeaders,
-      redirect: "follow",
+      redirect: "manual",
     };
 
     if (!["GET", "HEAD"].includes(request.method) && request.body) {
@@ -596,6 +636,21 @@ export async function handleScorsRequest(request, env = {}) {
       response = await fetchViaSocketProxy(targetUrl, fetchOpts, proxyConfig);
     } else {
       response = await fetch(targetUrl.href, fetchOpts);
+    }
+
+    // Cleanly rewrite upstream 3xx redirects so they route through the proxy once without looping
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const rawLocation = response.headers.get("Location");
+      if (rawLocation) {
+        const resolvedLocation = unwrapProxyUrl(new URL(rawLocation, targetUrl.href).href, reqUrl.origin);
+        const proxiedLocation = `${reqUrl.origin}/scors?url=${encodeURIComponent(resolvedLocation)}`;
+        const redirectHeaders = new Headers(corsHeaders);
+        redirectHeaders.set("Location", proxiedLocation);
+        return new Response(null, {
+          status: response.status,
+          headers: redirectHeaders,
+        });
+      }
     }
 
     let finalTargetUrl = targetUrl;
@@ -627,25 +682,75 @@ export async function handleScorsRequest(request, env = {}) {
       const rewriter = new HTMLRewriter()
         .on("head", {
           element(element) {
-            element.append(
+            element.prepend(
               `<link rel="icon" type="image/x-icon" href="${reqUrl.origin}/favicon.ico">
               <link rel="shortcut icon" href="${reqUrl.origin}/favicon.ico">
               <script>
                 (function() {
-                  var PROXY_ORIGIN = "${reqUrl.origin}";
-                  var TARGET_FULL = "${finalTargetUrl.href.replace(/"/g, '\\"').replace(/'/g, "\\'")}";
+                  var PROXY_ORIGIN = ${JSON.stringify(reqUrl.origin)};
+                  var TARGET_FULL = ${JSON.stringify(finalTargetUrl.href)};
+
+                  function unwrapAssetUrl(u) {
+                    if (!u || typeof u !== 'string') return u;
+                    try {
+                      var parsed = new URL(u, TARGET_FULL);
+                      var guard = 0;
+                      while (
+                        parsed.origin === PROXY_ORIGIN &&
+                        parsed.pathname.toLowerCase().replace(/\\/$/, '') === '/scors' &&
+                        parsed.searchParams.has('url') &&
+                        guard < 6
+                      ) {
+                        var inner = parsed.searchParams.get('url');
+                        if (!inner) break;
+                        parsed = new URL(inner, TARGET_FULL);
+                        guard++;
+                      }
+                      return parsed.href;
+                    } catch (e) {
+                      return u;
+                    }
+                  }
 
                   function proxyAssetUrl(u) {
                     if (!u || typeof u !== 'string') return u;
-                    if (u.startsWith(PROXY_ORIGIN) || u.startsWith('data:') || u.startsWith('blob:') || u.startsWith('javascript:')) {
+                    if (
+                      u.startsWith('data:') ||
+                      u.startsWith('blob:') ||
+                      u.startsWith('javascript:') ||
+                      u.startsWith('about:')
+                    ) {
                       return u;
                     }
+                    var cleanTarget = unwrapAssetUrl(u);
                     try {
-                      var absUrl = new URL(u, TARGET_FULL).href;
+                      var absUrl = new URL(cleanTarget, TARGET_FULL).href;
+                      if (absUrl.startsWith(PROXY_ORIGIN)) return absUrl;
                       return PROXY_ORIGIN + '/scors?url=' + encodeURIComponent(absUrl);
                     } catch (e) {
                       return u;
                     }
+                  }
+
+                  // Unwrap document.currentScript.src so scripts like largeEPK.js don't fail getParentUrl()
+                  var currentScriptDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'currentScript');
+                  if (currentScriptDesc && currentScriptDesc.get) {
+                    Object.defineProperty(document, 'currentScript', {
+                      configurable: true,
+                      get: function() {
+                        var el = currentScriptDesc.get.call(document);
+                        if (!el) return null;
+                        return new Proxy(el, {
+                          get: function(target, prop) {
+                            if (prop === 'src') {
+                              return unwrapAssetUrl(target.src);
+                            }
+                            var val = Reflect.get(target, prop);
+                            return typeof val === 'function' ? val.bind(target) : val;
+                          }
+                        });
+                      }
+                    });
                   }
 
                   var linkHrefDesc = Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype, 'href');
@@ -665,7 +770,9 @@ export async function handleScorsRequest(request, env = {}) {
                   var scriptSrcDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
                   if (scriptSrcDesc && scriptSrcDesc.set) {
                     Object.defineProperty(HTMLScriptElement.prototype, 'src', {
-                      get: scriptSrcDesc.get,
+                      get: function() {
+                        return unwrapAssetUrl(scriptSrcDesc.get.call(this));
+                      },
                       set: function(val) {
                         return scriptSrcDesc.set.call(this, proxyAssetUrl(val));
                       }
@@ -688,7 +795,8 @@ export async function handleScorsRequest(request, env = {}) {
                   if (NativeWebSocket) {
                     window.WebSocket = function(url, protocols) {
                       try {
-                        var absUrl = new URL(url, TARGET_FULL).href;
+                        var cleanWs = unwrapAssetUrl(url);
+                        var absUrl = new URL(cleanWs, TARGET_FULL).href;
                         var proxiedWsUrl = PROXY_ORIGIN.replace(/^http/, 'ws') + '/scors?ws=' + encodeURIComponent(absUrl);
                         return new (Function.prototype.bind.apply(NativeWebSocket, [null, proxiedWsUrl, protocols]))();
                       } catch(e) {
@@ -701,13 +809,21 @@ export async function handleScorsRequest(request, env = {}) {
                   var originalFetch = window.fetch;
                   if (originalFetch) {
                     window.fetch = function(resource, init) {
-                      if (typeof resource === 'string' && !resource.startsWith(PROXY_ORIGIN) && !resource.startsWith('data:')) {
-                        try {
-                          var absUrl = new URL(resource, TARGET_FULL).href;
-                          resource = PROXY_ORIGIN + '/scors?url=' + encodeURIComponent(absUrl);
-                        } catch(e) {}
+                      if (typeof resource === 'string' || resource instanceof URL) {
+                        resource = proxyAssetUrl(String(resource));
+                      } else if (resource instanceof Request) {
+                        resource = new Request(proxyAssetUrl(resource.url), resource);
                       }
                       return originalFetch.call(this, resource, init);
+                    };
+                  }
+
+                  var origXhrOpen = XMLHttpRequest.prototype.open;
+                  if (origXhrOpen) {
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                      var args = Array.prototype.slice.call(arguments);
+                      args[1] = proxyAssetUrl(String(url));
+                      return origXhrOpen.apply(this, args);
                     };
                   }
 
@@ -715,10 +831,7 @@ export async function handleScorsRequest(request, env = {}) {
                   var originalReplace = history.replaceState;
                   function fixUrl(u) {
                     if (!u) return u;
-                    try {
-                      var absUrl = new URL(u, TARGET_FULL).href;
-                      return PROXY_ORIGIN + '/scors?url=' + encodeURIComponent(absUrl);
-                    } catch(e) { return u; }
+                    return proxyAssetUrl(String(u));
                   }
                   if (originalPush) {
                     history.pushState = function(state, unused, url) {
@@ -774,7 +887,7 @@ export async function handleScorsRequest(request, env = {}) {
             const href = decodeHtmlEntities(rawHref);
             if (href && !href.startsWith("javascript:") && !href.startsWith("#") && !href.startsWith("mailto:") && !href.startsWith("blob:")) {
               try {
-                const absoluteUrl = new URL(href, finalTargetUrl.href).href;
+                const absoluteUrl = unwrapProxyUrl(new URL(href, finalTargetUrl.href).href, reqUrl.origin);
                 element.setAttribute("href", `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
               } catch (_) {}
             }
@@ -787,7 +900,7 @@ export async function handleScorsRequest(request, env = {}) {
             const method = (element.getAttribute("method") || "GET").toUpperCase();
 
             try {
-              const absoluteUrl = new URL(action, finalTargetUrl.href);
+              const absoluteUrl = new URL(unwrapProxyUrl(action, reqUrl.origin, finalTargetUrl.href), finalTargetUrl.href);
 
               if (method === "GET") {
                 element.setAttribute("action", `${reqUrl.origin}/scors`);
@@ -812,7 +925,7 @@ export async function handleScorsRequest(request, env = {}) {
                 element.setAttribute("href", `${reqUrl.origin}/favicon.ico`);
               } else {
                 try {
-                  const absoluteUrl = new URL(attrVal, finalTargetUrl.href).href;
+                  const absoluteUrl = unwrapProxyUrl(new URL(attrVal, finalTargetUrl.href).href, reqUrl.origin);
                   element.setAttribute(attrName, `${reqUrl.origin}/scors?url=${encodeURIComponent(absoluteUrl)}`);
                 } catch (_) {}
               }
