@@ -592,8 +592,8 @@ export async function handleScorsRequest(request, env = {}) {
       await logUrlVisitByIp(logStore, publicIp, targetUrl.href);
     }
 
-    const modifiedHeaders = new Headers(request.headers);
-    modifiedHeaders.set("Host", targetUrl.host);
+const modifiedHeaders = new Headers(request.headers);
+    modifiedHeaders.delete("host");
     modifiedHeaders.set("Referer", targetUrl.href);
     if (modifiedHeaders.has("Origin")) {
       modifiedHeaders.set("Origin", targetUrl.origin);
@@ -601,9 +601,19 @@ export async function handleScorsRequest(request, env = {}) {
     modifiedHeaders.set("SCORS-Provider", reqUrl.host);
     modifiedHeaders.set("SCORS-Unique-Device-ID", actualDeviceId);
 
-    ["cf-connecting-ip", "cf-ray", "cf-visitor", "cf-worker", "cf-ipcountry", "content-length", "cookie"].forEach((h) =>
-      modifiedHeaders.delete(h)
-    );
+    [
+      "host",
+      "cf-connecting-ip",
+      "cf-ray",
+      "cf-visitor",
+      "cf-worker",
+      "cf-ipcountry",
+      "x-forwarded-for",
+      "x-forwarded-proto",
+      "x-real-ip",
+      "content-length",
+      "cookie",
+    ].forEach((h) => modifiedHeaders.delete(h));
 
     if (!modifiedHeaders.has("User-Agent")) {
       modifiedHeaders.set("User-Agent", userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
