@@ -637,13 +637,17 @@ const modifiedHeaders = new Headers(request.headers);
     let response;
 
     if (env && env.PROXY_HOST && env.PROXY_PORT) {
-      const proxyConfig = {
-        host: env.PROXY_HOST,
-        port: parseInt(env.PROXY_PORT, 10),
-        username: env.PROXY_USER || "",
-        password: env.PROXY_PASS || "",
-      };
-      response = await fetchViaSocketProxy(targetUrl, fetchOpts, proxyConfig);
+      try {
+        const proxyConfig = {
+          host: env.PROXY_HOST,
+          port: parseInt(env.PROXY_PORT, 10),
+          username: env.PROXY_USER || "",
+          password: env.PROXY_PASS || "",
+        };
+        response = await fetchViaSocketProxy(targetUrl, fetchOpts, proxyConfig);
+      } catch (socketErr) {
+        response = await fetch(targetUrl.href, fetchOpts);
+      }
     } else {
       response = await fetch(targetUrl.href, fetchOpts);
     }
