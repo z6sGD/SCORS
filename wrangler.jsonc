@@ -16,6 +16,10 @@
     {
       "binding": "SCORS_BANLIST",
       "id": "cb6cb2de82b14c0ea8d3ad8e0af0ca8e"
+    },
+    {
+      "binding": "SCORS_LOGS",
+      "id": "f0dc7c93fac249ed93ea34558d0f5ced"
     }
   ],
   "triggers": {
