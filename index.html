@@ -4,11 +4,53 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SCORS - High Performance Open Source CORS Proxy Engine</title>
-  
   <meta name="theme-color" content="#0f172a">
   <meta name="description" content="SCORS (ScriptCraft CORS) - High-performance open-source CORS proxy engine, API tester, and edge sandbox.">
+  <meta name="robots" content="index, follow">
   
-  <!-- Tailwind CSS CDN -->
+  <link rel="icon" type="image/x-icon" href="/assets/favicon.ico">
+  <link rel="shortcut icon" href="/assets/favicon.ico">
+  <link rel="apple-touch-icon" href="/assets/logo.png">
+  <link rel="canonical" href="https://scorsbackup.pages.dev/">
+
+  <meta property="og:site_name" content="SCORS">
+  <meta property="og:title" content="SCORS - High Performance Open Source CORS Proxy Engine">
+  <meta property="og:description" content="SCORS (ScriptCraft CORS) - High-performance open-source CORS proxy engine, API tester, and edge sandbox.">
+  <meta property="og:url" content="https://scorsbackup.pages.dev/">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://scorsbackup.pages.dev/assets/logo.png">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SCORS - High Performance Open Source CORS Proxy Engine">
+  <meta name="twitter:description" content="SCORS (ScriptCraft CORS) - High-performance open-source CORS proxy engine, API tester, and edge sandbox.">
+  <meta name="twitter:image" content="https://scorsbackup.pages.dev/assets/logo.png">
+
+  <script type="application/ld+json">
+  [
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "SCORS",
+      "alternateName": "ScriptCraft CORS",
+      "url": "https://scorsbackup.pages.dev/"
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "SCORS Proxy Engine",
+      "operatingSystem": "All",
+      "applicationCategory": "DeveloperApplication",
+      "image": "https://scorsbackup.pages.dev/assets/logo.png",
+      "url": "https://scorsbackup.pages.dev/",
+      "author": {
+        "@type": "Organization",
+        "name": "ScriptCraft",
+        "logo": "https://scorsbackup.pages.dev/assets/logo.png"
+      }
+    }
+  ]
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -29,12 +71,8 @@
       }
     }
   </script>
-  
-  <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
-
   <style>
-    /* Developer Dark Mode Scrollbars */
     ::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -49,16 +87,12 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #475569;
     }
-
-    /* Glow Effects */
     .glow-cyan {
       box-shadow: 0 0 40px -10px rgba(14, 165, 233, 0.3);
     }
     .glow-card {
       background: radial-gradient(1000px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(14, 165, 233, 0.08), transparent 40%);
     }
-
-    /* Toast Notification Animation */
     @keyframes slide-up {
       from { transform: translateY(100%); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
@@ -69,26 +103,16 @@
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen flex flex-col selection:bg-cyan-500 selection:text-slate-950">
-
-  <!-- TOP HEADER / NAVBAR -->
   <header class="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md px-4 lg:px-8 py-3 flex items-center justify-between">
     <div class="flex items-center space-x-3">
-      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-        <i data-lucide="zap" class="w-5 h-5 text-white"></i>
-      </div>
-      <div>
-        <div class="flex items-center gap-2">
-          <span class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-400 bg-clip-text text-transparent">
-            SCORS
-          </span>
-          <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800 font-semibold">
-            v2.0 Edge
-          </span>
-        </div>
-      </div>
+      <a href="/" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100/95 hover:bg-white transition border border-slate-200/60 shadow-md">
+        <img src="/assets/logo.png" alt="SCORS Logo" class="h-6 w-auto object-contain" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold text-xs\'>S</div><span class=\'font-extrabold text-slate-900 text-sm tracking-tight\'>SCORS</span>';" />
+      </a>
+      <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800 font-semibold">
+        v2.0 Edge
+      </span>
     </div>
 
-    <!-- NAV LINKS & ACTIONS -->
     <nav class="hidden md:flex items-center space-x-6 text-xs font-medium text-slate-400">
       <a href="#demo" class="hover:text-cyan-400 transition">Live Demo</a>
       <a href="#features" class="hover:text-cyan-400 transition">Features</a>
@@ -108,9 +132,7 @@
     </div>
   </header>
 
-  <!-- HERO SECTION -->
   <section class="relative pt-16 pb-20 px-4 lg:px-8 max-w-7xl mx-auto text-center flex flex-col items-center">
-    <!-- Background Gradient Orbs -->
     <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-gradient-to-tr from-cyan-500/20 via-blue-600/10 to-transparent blur-3xl pointer-events-none rounded-full"></div>
 
     <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-950/40 text-cyan-300 text-xs font-medium mb-6 animate-pulse">
@@ -136,7 +158,6 @@
       </button>
     </div>
 
-    <!-- STATS HIGHLIGHT BAR -->
     <div class="mt-14 grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-4xl border border-slate-800/80 bg-slate-900/40 backdrop-blur rounded-2xl p-4 text-center">
       <div class="p-2">
         <div class="text-2xl font-bold text-cyan-400 font-mono">&lt; 25ms</div>
@@ -157,7 +178,6 @@
     </div>
   </section>
 
-  <!-- INTERACTIVE LIVE DEMO & TEST DRIVE SECTION -->
   <section id="demo" class="py-16 px-4 lg:px-8 max-w-7xl mx-auto w-full">
     <div class="text-center mb-8">
       <h2 class="text-2xl sm:text-3xl font-bold text-white tracking-tight">Interactive Live Sandbox</h2>
@@ -165,31 +185,22 @@
     </div>
 
     <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden glow-cyan">
-      
-      <!-- CONTROLS BAR -->
       <div class="p-4 border-b border-slate-800 bg-slate-950 flex flex-col md:flex-row items-stretch md:items-center gap-3">
-        
-        <!-- Method Selector -->
         <select id="demo-method" class="bg-slate-900 border border-slate-800 text-slate-200 text-xs font-mono font-bold rounded-xl px-3 py-2 outline-none focus:border-cyan-500">
           <option value="GET">GET</option>
           <option value="POST">POST</option>
           <option value="PUT">PUT</option>
           <option value="DELETE">DELETE</option>
         </select>
-
-        <!-- Target Input -->
         <div class="flex-1 flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 focus-within:border-cyan-500 transition">
           <i data-lucide="globe" class="w-4 h-4 text-slate-500 shrink-0"></i>
           <input type="url" id="demo-target-url" value="https://httpbin.org/json" placeholder="https://api.example.com/data" class="w-full bg-transparent text-xs font-mono text-slate-100 placeholder-slate-600 outline-none">
         </div>
-
-        <!-- Execute Button -->
         <button onclick="runDemoProxyRequest()" id="btn-demo-run" class="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs flex items-center justify-center gap-2 transition shadow">
           <i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Execute Request</span>
         </button>
       </div>
 
-      <!-- PRESET ENDPOINTS ROW -->
       <div class="p-2.5 px-4 bg-slate-950/60 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto text-xs text-slate-400">
         <span class="text-[11px] font-semibold text-slate-500 uppercase shrink-0">Quick Presets:</span>
         <button onclick="setDemoPreset('https://httpbin.org/json')" class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono text-[11px] shrink-0">HTTPBin JSON</button>
@@ -198,10 +209,7 @@
         <button onclick="setDemoPreset('https://example.com')" class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono text-[11px] shrink-0">Example Domain</button>
       </div>
 
-      <!-- RESPONSE RESULTS WORKSPACE -->
       <div class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4 bg-slate-950/40 min-h-[350px]">
-        
-        <!-- Left Column: Response Output -->
         <div class="flex flex-col space-y-3">
           <div class="flex items-center justify-between text-xs font-mono">
             <div class="flex items-center gap-2">
@@ -210,11 +218,9 @@
             </div>
             <button onclick="copyDemoResponse()" class="text-cyan-400 hover:underline text-[11px]">Copy Body</button>
           </div>
-
           <pre id="demo-response-body" class="flex-1 p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-emerald-400 overflow-auto whitespace-pre-wrap max-h-[300px]">Click "Execute Request" above to test the SCORS proxy engine.</pre>
         </div>
 
-        <!-- Right Column: Response Headers & Technical Details -->
         <div class="flex flex-col space-y-3 font-mono text-xs">
           <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Injected Response Headers</div>
           <pre id="demo-headers-output" class="flex-1 p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-cyan-300 overflow-auto max-h-[300px]">{
@@ -223,12 +229,10 @@
   "access-control-allow-headers": "*"
 }</pre>
         </div>
-
       </div>
     </div>
   </section>
 
-  <!-- FEATURES GRID -->
   <section id="features" class="py-16 px-4 lg:px-8 max-w-7xl mx-auto w-full">
     <div class="text-center mb-12">
       <h2 class="text-2xl sm:text-3xl font-bold text-white tracking-tight">Core Architecture & Features</h2>
@@ -236,8 +240,6 @@
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      
-      <!-- Feature 1 -->
       <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-slate-700 transition space-y-3">
         <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center">
           <i data-lucide="shield-off" class="w-5 h-5"></i>
@@ -248,7 +250,6 @@
         </p>
       </div>
 
-      <!-- Feature 2 -->
       <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-slate-700 transition space-y-3">
         <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center">
           <i data-lucide="cpu" class="w-5 h-5"></i>
@@ -259,7 +260,6 @@
         </p>
       </div>
 
-      <!-- Feature 3 -->
       <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-slate-700 transition space-y-3">
         <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center">
           <i data-lucide="image" class="w-5 h-5"></i>
@@ -270,7 +270,6 @@
         </p>
       </div>
 
-      <!-- Feature 4 -->
       <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-slate-700 transition space-y-3">
         <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
           <i data-lucide="sliders" class="w-5 h-5"></i>
@@ -281,7 +280,6 @@
         </p>
       </div>
 
-      <!-- Feature 5 -->
       <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-slate-700 transition space-y-3">
         <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center">
           <i data-lucide="terminal" class="w-5 h-5"></i>
@@ -292,7 +290,6 @@
         </p>
       </div>
 
-      <!-- Feature 6 -->
       <div class="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 hover:border-slate-700 transition space-y-3">
         <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center">
           <i data-lucide="cloud" class="w-5 h-5"></i>
@@ -302,11 +299,9 @@
           Deploy to Cloudflare Pages or Workers to host a zero-cost proxy at `https://scorsbackup.pages.dev/?Url=example.com`.
         </p>
       </div>
-
     </div>
   </section>
 
-  <!-- HOW IT WORKS ARCHITECTURE DIAGRAM -->
   <section id="how-it-works" class="py-16 px-4 lg:px-8 max-w-7xl mx-auto w-full">
     <div class="text-center mb-12">
       <h2 class="text-2xl sm:text-3xl font-bold text-white tracking-tight">How SCORS Works</h2>
@@ -315,33 +310,27 @@
 
     <div class="p-6 sm:p-8 rounded-2xl border border-slate-800 bg-slate-900/60 font-mono text-xs">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center relative">
-        
-        <!-- Step 1 -->
         <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 relative">
           <div class="w-7 h-7 rounded-full bg-cyan-600 text-white font-bold flex items-center justify-center mx-auto text-xs">1</div>
           <h4 class="text-sm font-bold text-slate-200">Client Web App</h4>
           <p class="text-[11px] text-slate-400">Issues fetch request to `https://scorsbackup.pages.dev/?Url=https://api.target.com/data`</p>
         </div>
 
-        <!-- Step 2 -->
         <div class="p-4 rounded-xl bg-slate-950 border border-cyan-500/40 space-y-2 relative shadow-lg shadow-cyan-500/10">
           <div class="w-7 h-7 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center mx-auto text-xs">2</div>
           <h4 class="text-sm font-bold text-cyan-300">SCORS Edge Proxy</h4>
           <p class="text-[11px] text-slate-400">Cleans request headers, forwards request to target, strips `X-Frame-Options` & `CSP`, and injects `Access-Control-Allow-Origin: *`</p>
         </div>
 
-        <!-- Step 3 -->
         <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 relative">
           <div class="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center mx-auto text-xs">3</div>
           <h4 class="text-sm font-bold text-slate-200">Target Server Response</h4>
           <p class="text-[11px] text-slate-400">Target returns payload/HTML safely to client without CORS or iframe blocking restrictions.</p>
         </div>
-
       </div>
     </div>
   </section>
 
-  <!-- CODE EXAMPLES SECTION -->
   <section id="code" class="py-16 px-4 lg:px-8 max-w-7xl mx-auto w-full">
     <div class="text-center mb-10">
       <h2 class="text-2xl sm:text-3xl font-bold text-white tracking-tight">Integration Code Examples</h2>
@@ -349,7 +338,6 @@
     </div>
 
     <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-      <!-- Tabs Header -->
       <div class="flex border-b border-slate-800 bg-slate-950 text-xs font-mono">
         <button onclick="switchCodeTab('js')" id="tab-code-js" class="px-5 py-3 font-bold text-cyan-400 border-b-2 border-cyan-400 transition">JavaScript Fetch</button>
         <button onclick="switchCodeTab('curl')" id="tab-code-curl" class="px-5 py-3 font-bold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition">cURL</button>
@@ -357,7 +345,6 @@
         <button onclick="switchCodeTab('node')" id="tab-code-node" class="px-5 py-3 font-bold text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition">Node.js Axios</button>
       </div>
 
-      <!-- Code Panels -->
       <div class="p-5 bg-slate-950 relative">
         <button onclick="copyActiveCodeSnippet()" class="absolute right-4 top-4 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-medium transition flex items-center gap-1.5">
           <i data-lucide="copy" class="w-3.5 h-3.5 text-cyan-400"></i> Copy Snippet
@@ -371,7 +358,6 @@
     </div>
   </section>
 
-  <!-- DEPLOYMENT GUIDE MODAL / SECTION -->
   <section id="deploy" class="py-16 px-4 lg:px-8 max-w-7xl mx-auto w-full">
     <div class="bg-gradient-to-r from-slate-900 via-cyan-950/40 to-slate-900 border border-cyan-500/30 rounded-3xl p-8 lg:p-12 space-y-6">
       <div class="flex items-center gap-3">
@@ -409,16 +395,13 @@
     </div>
   </section>
 
-  <!-- FOOTER -->
   <footer class="border-t border-slate-800/80 bg-slate-950 py-8 px-4 text-center text-xs text-slate-500">
     <p>SCORS Engine &bull; Open-Source High-Performance CORS Proxy & Sandbox</p>
     <p class="mt-1">GitHub Repository: <a href="https://github.com/z6sGD/SCORS" target="_blank" class="text-cyan-400 hover:underline">github.com/z6sGD/SCORS</a></p>
   </footer>
 
-  <!-- TOAST CONTAINER -->
   <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
-  <!-- JAVASCRIPT APP LOGIC -->
   <script>
     const codeSnippets = {
       js: `fetch('https://scorsbackup.pages.dev/?Url=' + encodeURIComponent('https://api.example.com/data'))
