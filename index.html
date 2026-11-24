@@ -146,7 +146,7 @@
     </h1>
 
     <p class="mt-6 text-base sm:text-lg text-slate-400 max-w-2xl leading-relaxed">
-      Bypass cross-origin blocking, strip restrictive security headers (`X-Frame-Options` & `CSP`), and route HTTP API requests effortlessly across edge locations.
+      Bypass cross-origin blocking, strip restrictive security headers (<code>X-Frame-Options</code> &amp; <code>CSP</code>), and route HTTP API requests effortlessly across edge locations.
     </p>
 
     <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
@@ -196,7 +196,7 @@
           <i data-lucide="globe" class="w-4 h-4 text-slate-500 shrink-0"></i>
           <input type="url" id="demo-target-url" value="https://httpbin.org/json" placeholder="https://api.example.com/data" class="w-full bg-transparent text-xs font-mono text-slate-100 placeholder-slate-600 outline-none">
         </div>
-        <button onclick="runDemoProxyRequest()" id="btn-demo-run" class="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs flex items-center justify-center gap-2 transition shadow">
+        <button onclick="runDemoProxyRequest()" id="btn-demo-run" class="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs flex items-center justify-center gap-2 transition shadow disabled:opacity-50">
           <i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Execute Request</span>
         </button>
       </div>
@@ -246,7 +246,7 @@
         </div>
         <h3 class="text-base font-bold text-slate-100">Anti-Frame Block Removal</h3>
         <p class="text-xs text-slate-400 leading-relaxed">
-          Strips restrictive `X-Frame-Options: DENY` and `Content-Security-Policy` headers server-side, enabling seamless embedding of external sites in sandboxed iframes.
+          Strips restrictive <code>X-Frame-Options: DENY</code> and <code>Content-Security-Policy</code> headers server-side, enabling seamless embedding of external sites in sandboxed iframes.
         </p>
       </div>
 
@@ -276,7 +276,7 @@
         </div>
         <h3 class="text-base font-bold text-slate-100">Header Customization</h3>
         <p class="text-xs text-slate-400 leading-relaxed">
-          Full support for custom HTTP request headers, authorization tokens (`Bearer`), and custom CORS keys on all outgoing requests.
+          Full support for custom HTTP request headers, authorization tokens (<code>Bearer</code>), and custom CORS keys on all outgoing requests.
         </p>
       </div>
 
@@ -286,7 +286,7 @@
         </div>
         <h3 class="text-base font-bold text-slate-100">Console Bridge & Scriptlets</h3>
         <p class="text-xs text-slate-400 leading-relaxed">
-          Features a cross-origin postMessage bridge that captures console logs (`log`, `warn`, `error`) from inside embedded sandboxed frames.
+          Features a cross-origin postMessage bridge that captures console logs (<code>log</code>, <code>warn</code>, <code>error</code>) from inside embedded sandboxed frames.
         </p>
       </div>
 
@@ -296,7 +296,7 @@
         </div>
         <h3 class="text-base font-bold text-slate-100">Cloudflare Pages Direct Root</h3>
         <p class="text-xs text-slate-400 leading-relaxed">
-          Deploy to Cloudflare Pages or Workers to host a zero-cost proxy at `https://scorsbackup.pages.dev/?Url=example.com`.
+          Deploy to Cloudflare Pages or Workers to host a zero-cost proxy at <code>https://scorsbackup.pages.dev/?example.com</code> or <code>/scors?url=example.com</code>.
         </p>
       </div>
     </div>
@@ -313,13 +313,13 @@
         <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 relative">
           <div class="w-7 h-7 rounded-full bg-cyan-600 text-white font-bold flex items-center justify-center mx-auto text-xs">1</div>
           <h4 class="text-sm font-bold text-slate-200">Client Web App</h4>
-          <p class="text-[11px] text-slate-400">Issues fetch request to `https://scorsbackup.pages.dev/?Url=https://api.target.com/data`</p>
+          <p class="text-[11px] text-slate-400">Issues fetch request to <code>https://scorsbackup.pages.dev/scors?url=https://api.target.com/data</code></p>
         </div>
 
         <div class="p-4 rounded-xl bg-slate-950 border border-cyan-500/40 space-y-2 relative shadow-lg shadow-cyan-500/10">
           <div class="w-7 h-7 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center mx-auto text-xs">2</div>
           <h4 class="text-sm font-bold text-cyan-300">SCORS Edge Proxy</h4>
-          <p class="text-[11px] text-slate-400">Cleans request headers, forwards request to target, strips `X-Frame-Options` & `CSP`, and injects `Access-Control-Allow-Origin: *`</p>
+          <p class="text-[11px] text-slate-400">Cleans request headers, forwards request to target, strips <code>X-Frame-Options</code> &amp; <code>CSP</code>, and injects <code>Access-Control-Allow-Origin: *</code></p>
         </div>
 
         <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 relative">
@@ -350,7 +350,7 @@
           <i data-lucide="copy" class="w-3.5 h-3.5 text-cyan-400"></i> Copy Snippet
         </button>
 
-        <pre id="code-snippet-display" class="font-mono text-xs text-cyan-300 overflow-x-auto p-2">fetch('https://scorsbackup.pages.dev/?Url=' + encodeURIComponent('https://api.example.com/data'))
+        <pre id="code-snippet-display" class="font-mono text-xs text-cyan-300 overflow-x-auto p-2">fetch('https://scorsbackup.pages.dev/scors?url=' + encodeURIComponent('https://api.example.com/data'))
   .then(res => res.json())
   .then(data => console.log(data))
   .catch(err => console.error(err));</pre>
@@ -366,7 +366,7 @@
         </div>
         <div>
           <h3 class="text-xl font-bold text-white">1-Click Deployment to Cloudflare Pages</h3>
-          <p class="text-xs text-slate-400 mt-0.5">Host your own dedicated SCORS instance on your GitHub repo (`z6sGD/SCORS`).</p>
+          <p class="text-xs text-slate-400 mt-0.5">Host your own dedicated SCORS instance on your GitHub repo (<code>z6sGD/SCORS</code>).</p>
         </div>
       </div>
 
@@ -374,21 +374,21 @@
         <li class="flex items-start gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
           <span class="w-6 h-6 rounded-lg bg-cyan-600 text-white font-bold flex items-center justify-center shrink-0">1</span>
           <div>
-            <strong class="text-white">Push to GitHub:</strong> Ensure your repository <code class="text-cyan-300">z6sGD/SCORS</code> contains <code class="text-cyan-300">index.html</code> and the <code class="text-cyan-300">functions/[[path]].js</code> Cloudflare Pages route handler.
+            <strong class="text-white">Fork this GitHub Repository:</strong> Ensure your fork of this repository contains the latest <code class="text-cyan-300">SCORS</code> features &amp; updates.
           </div>
         </li>
 
         <li class="flex items-start gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
           <span class="w-6 h-6 rounded-lg bg-cyan-600 text-white font-bold flex items-center justify-center shrink-0">2</span>
           <div>
-            <strong class="text-white">Connect to Cloudflare:</strong> Go to <a href="https://dash.cloudflare.com/" target="_blank" class="text-cyan-400 hover:underline">Cloudflare Dashboard</a> &rarr; <strong>Workers & Pages</strong> &rarr; <strong>Create Application</strong> &rarr; <strong>Pages</strong>.
+            <strong class="text-white">Connect to Cloudflare:</strong> Go to <a href="https://dash.cloudflare.com/" target="_blank" class="text-cyan-400 hover:underline">Cloudflare Dashboard</a> &rarr; <strong>Workers &amp; Pages</strong> &rarr; <strong>Create Application</strong> &rarr; <strong>Pages</strong> (this also works for Workers).
           </div>
         </li>
 
         <li class="flex items-start gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
           <span class="w-6 h-6 rounded-lg bg-cyan-600 text-white font-bold flex items-center justify-center shrink-0">3</span>
           <div>
-            <strong class="text-white">Select Repository & Deploy:</strong> Select <code class="text-cyan-300">z6sGD/SCORS</code>, keep default build settings, and click <strong>Save and Deploy</strong>. Your proxy will be live at <code class="text-cyan-300">https://scorsbackup.pages.dev/</code>!
+            <strong class="text-white">Select Repository &amp; Deploy:</strong> Select the <code class="text-cyan-300">SCORS</code> repository, keep default build settings, and click <strong>Save and Deploy</strong>. Your proxy will be live at <code class="text-cyan-300">https://your-scors-fork-here.pages.dev/</code>!
           </div>
         </li>
       </ol>
@@ -396,7 +396,7 @@
   </section>
 
   <footer class="border-t border-slate-800/80 bg-slate-950 py-8 px-4 text-center text-xs text-slate-500">
-    <p>SCORS Engine &bull; Open-Source High-Performance CORS Proxy & Sandbox</p>
+    <p>SCORS Engine &bull; Open-Source High-Performance CORS Proxy &amp; Sandbox</p>
     <p class="mt-1">GitHub Repository: <a href="https://github.com/z6sGD/SCORS" target="_blank" class="text-cyan-400 hover:underline">github.com/z6sGD/SCORS</a></p>
   </footer>
 
@@ -404,19 +404,19 @@
 
   <script>
     const codeSnippets = {
-      js: `fetch('https://scorsbackup.pages.dev/?Url=' + encodeURIComponent('https://api.example.com/data'))
+      js: `fetch('https://scorsbackup.pages.dev/scors?url=' + encodeURIComponent('https://api.example.com/data'))
   .then(res => res.json())
   .then(data => console.log(data))
   .catch(err => console.error(err));`,
-      curl: `curl "https://scorsbackup.pages.dev/?Url=https://api.example.com/data"`,
+      curl: `curl "https://scorsbackup.pages.dev/scors?url=https://api.example.com/data"`,
       py: `import requests
 
-url = "https://scorsbackup.pages.dev/?Url=https://api.example.com/data"
+url = "https://scorsbackup.pages.dev/scors?url=https://api.example.com/data"
 response = requests.get(url)
 print(response.json())`,
       node: `const axios = require('axios');
 
-axios.get('https://scorsbackup.pages.dev/?Url=' + encodeURIComponent('https://api.example.com/data'))
+axios.get('https://scorsbackup.pages.dev/scors?url=' + encodeURIComponent('https://api.example.com/data'))
   .then(response => console.log(response.data));`
     };
 
@@ -436,43 +436,71 @@ axios.get('https://scorsbackup.pages.dev/?Url=' + encodeURIComponent('https://ap
       const timeDisplay = document.getElementById('demo-time-display');
       const responseBody = document.getElementById('demo-response-body');
       const headersOutput = document.getElementById('demo-headers-output');
+      const runBtn = document.getElementById('btn-demo-run');
 
+      let normalizedTarget = urlInput;
+      if (!/^https?:\/\//i.test(normalizedTarget)) {
+        normalizedTarget = 'https://' + normalizedTarget;
+      }
+
+      if (runBtn) runBtn.disabled = true;
       statusBadge.textContent = 'Proxying...';
       statusBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950 text-amber-400 border border-amber-800';
+      responseBody.textContent = 'Routing request through SCORS edge node...';
 
       const startTime = performance.now();
+      const gateways = [
+        `${window.location.origin}/scors?url=${encodeURIComponent(normalizedTarget)}`,
+        `https://scors.scriptcraft.workers.dev/scors?url=${encodeURIComponent(normalizedTarget)}`
+      ];
 
-      try {
-        const proxyUrl = `/?Url=${encodeURIComponent(urlInput)}`;
-        const response = await fetch(proxyUrl, { method });
+      let response = null;
+      let lastErr = null;
 
-        const duration = Math.round(performance.now() - startTime);
-        timeDisplay.textContent = `${duration} ms`;
-
-        statusBadge.textContent = `${response.status} ${response.statusText || 'OK'}`;
-        statusBadge.className = response.ok ? 
-          'px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800' :
-          'px-2 py-0.5 rounded text-[11px] font-bold bg-rose-950 text-rose-400 border border-rose-800';
-
-        const headers = {};
-        response.headers.forEach((v, k) => { headers[k] = v; });
-        headersOutput.textContent = JSON.stringify(headers, null, 2);
-
-        const text = await response.text();
-        lastDemoResponseBody = text;
-
+      for (const gatewayUrl of gateways) {
         try {
-          responseBody.textContent = JSON.stringify(JSON.parse(text), null, 2);
-        } catch(e) {
-          responseBody.textContent = text;
+          const res = await fetch(gatewayUrl, { method });
+          if ((res.status === 404 || res.status === 405) && gatewayUrl.startsWith(window.location.origin)) {
+            continue;
+          }
+          response = res;
+          break;
+        } catch (err) {
+          lastErr = err;
         }
+      }
 
-        showToast(`⚡ Proxy request completed in ${duration} ms!`);
-      } catch (err) {
+      const duration = Math.round(performance.now() - startTime);
+      timeDisplay.textContent = `${duration} ms`;
+
+      if (!response) {
         statusBadge.textContent = 'Proxy Error';
         statusBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-rose-950 text-rose-400 border border-rose-800';
-        responseBody.textContent = `SCORS Proxy Error: ${err.message}\nMake sure your Cloudflare Pages or Worker backend function is running.`;
+        responseBody.textContent = `SCORS Proxy Error: ${lastErr ? lastErr.message : 'All edge gateways unreachable.'}`;
+        if (runBtn) runBtn.disabled = false;
+        return;
       }
+
+      statusBadge.textContent = `${response.status} ${response.statusText || 'OK'}`;
+      statusBadge.className = response.ok
+        ? 'px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800'
+        : 'px-2 py-0.5 rounded text-[11px] font-bold bg-rose-950 text-rose-400 border border-rose-800';
+
+      const headers = {};
+      response.headers.forEach((v, k) => { headers[k] = v; });
+      headersOutput.textContent = JSON.stringify(headers, null, 2);
+
+      const text = await response.text();
+      lastDemoResponseBody = text;
+
+      try {
+        responseBody.textContent = JSON.stringify(JSON.parse(text), null, 2);
+      } catch (e) {
+        responseBody.textContent = text;
+      }
+
+      if (runBtn) runBtn.disabled = false;
+      showToast(`⚡ Proxy request completed in ${duration} ms!`);
     }
 
     function setDemoPreset(url) {
@@ -503,7 +531,7 @@ axios.get('https://scorsbackup.pages.dev/?Url=' + encodeURIComponent('https://ap
     }
 
     function copyProxyBaseUrl() {
-      const proxyBase = `${window.location.origin}/?Url=`;
+      const proxyBase = `${window.location.origin}/scors?url=`;
       copyToClipboard(proxyBase, 'SCORS Proxy Base URL');
     }
 
