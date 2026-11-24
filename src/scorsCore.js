@@ -82,7 +82,11 @@ function unwrapProxyUrl(rawUrl, proxyOrigin, fallbackBase = undefined) {
       } else if ((pathNorm === "" || pathNorm === "/scors") && current.search.length > 1) {
         for (const [k, v] of current.searchParams.entries()) {
           if (v === "" && !["api", "local_ip", "mac"].includes(k.toLowerCase())) {
-            inner = decodeURIComponent(k);
+            try {
+              inner = decodeURIComponent(k);
+            } catch (_) {
+              inner = k;
+            }
             break;
           }
         }
@@ -90,6 +94,11 @@ function unwrapProxyUrl(rawUrl, proxyOrigin, fallbackBase = undefined) {
 
       if (!inner) break;
       let decodedInner = inner.trim();
+      if (/^https?%3A%2F%2F/i.test(decodedInner) || /^wss?%3A%2F%2F/i.test(decodedInner)) {
+        try {
+          decodedInner = decodeURIComponent(decodedInner);
+        } catch (_) {}
+      }
       if (!/^https?:\/\//i.test(decodedInner) && !/^wss?:\/\//i.test(decodedInner)) {
         const b64 = decodeUrlSafeBase64(decodedInner);
         decodedInner =
@@ -513,7 +522,11 @@ export async function handleScorsRequest(request, env = {}) {
   if (!targetUrlStr) {
     for (const [key, value] of reqUrl.searchParams.entries()) {
       if (value === "" && !["api", "local_ip", "mac"].includes(key.toLowerCase())) {
-        targetUrlStr = decodeURIComponent(key);
+        try {
+          targetUrlStr = decodeURIComponent(key);
+        } catch (_) {
+          targetUrlStr = key;
+        }
         usedBareQueryTarget = true;
         break;
       }
@@ -539,6 +552,12 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   targetUrlStr = targetUrlStr.trim();
+
+  if (/^https?%3A%2F%2F/i.test(targetUrlStr) || /^wss?%3A%2F%2F/i.test(targetUrlStr)) {
+    try {
+      targetUrlStr = decodeURIComponent(targetUrlStr);
+    } catch (_) {}
+  }
 
   if (!/^https?:\/\//i.test(targetUrlStr) && !/^wss?:\/\//i.test(targetUrlStr)) {
     const decodedUrl = decodeUrlSafeBase64(targetUrlStr);
@@ -767,6 +786,16 @@ export async function handleScorsRequest(request, env = {}) {
                   var PROXY_ORIGIN = ${JSON.stringify(reqUrl.origin)};
                   var TARGET_FULL = ${JSON.stringify(finalTargetUrl.href)};
 
+                  function decodeB64Url(s) {
+                    try {
+                      var b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+                      while (b64.length % 4 !== 0) b64 += '=';
+                      return decodeURIComponent(atob(b64));
+                    } catch (e) {
+                      return null;
+                    }
+                  }
+
                   function unwrapAssetUrl(u) {
                     if (!u || typeof u !== 'string') return u;
                     try {
@@ -780,13 +809,21 @@ export async function handleScorsRequest(request, env = {}) {
                         } else if ((pathNorm === '' || pathNorm === '/scors') && parsed.search.length > 1) {
                           for (var entry of parsed.searchParams.entries()) {
                             if (entry[1] === '' && ['api', 'local_ip', 'mac'].indexOf(entry[0].toLowerCase()) === -1) {
-                              inner = decodeURIComponent(entry[0]);
+                              try { inner = decodeURIComponent(entry[0]); } catch (e) { inner = entry[0]; }
                               break;
                             }
                           }
                         }
                         if (!inner) break;
-                        parsed = new URL(/^https?:\\/\\//i.test(inner) ? inner : 'https://' + inner, TARGET_FULL);
+                        inner = inner.trim();
+                        if (/^https?%3A%2F%2F/i.test(inner)) {
+                          try { inner = decodeURIComponent(inner); } catch (e) {}
+                        }
+                        if (!/^https?:\\/\\//i.test(inner)) {
+                          var b64 = decodeB64Url(inner);
+                          inner = (b64 && /^https?:\\/\\//i.test(b64)) ? b64 : ('https://' + inner);
+                        }
+                        parsed = new URL(inner, TARGET_FULL);
                         guard++;
                       }
                       return parsed.href;
@@ -797,15 +834,18 @@ export async function handleScorsRequest(request, env = {}) {
 
                   function proxyAssetUrl(u) {
                     if (!u || typeof u !== 'string') return u;
+                    var trimmed = u.trim();
                     if (
-                      u.startsWith('data:') ||
-                      u.startsWith('blob:') ||
-                      u.startsWith('javascript:') ||
-                      u.startsWith('about:')
+                      !trimmed ||
+                      trimmed.startsWith('data:') ||
+                      trimmed.startsWith('blob:') ||
+                      trimmed.startsWith('javascript:') ||
+                      trimmed.startsWith('about:') ||
+                      trimmed.startsWith('#')
                     ) {
                       return u;
                     }
-                    var cleanTarget = unwrapAssetUrl(u);
+                    var cleanTarget = unwrapAssetUrl(trimmed);
                     try {
                       var absUrl = new URL(cleanTarget, TARGET_FULL).href;
                       if (absUrl.startsWith(PROXY_ORIGIN)) return absUrl;
