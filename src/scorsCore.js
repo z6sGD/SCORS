@@ -76,11 +76,22 @@ function unwrapProxyUrl(rawUrl, proxyOrigin, fallbackBase = undefined) {
     let guard = 0;
     while (
       current.origin === proxyOrigin &&
-      current.pathname.toLowerCase().replace(/\/$/, "") === "/scors" &&
-      (current.searchParams.has("url") || current.searchParams.has("ws")) &&
       guard < 6
     ) {
-      const inner = current.searchParams.get("url") || current.searchParams.get("ws");
+      const pathNorm = current.pathname.toLowerCase().replace(/\/$/, "");
+      let inner = null;
+
+      if (pathNorm === "/scors" && (current.searchParams.has("url") || current.searchParams.has("ws"))) {
+        inner = current.searchParams.get("url") || current.searchParams.get("ws");
+      } else if ((pathNorm === "" || pathNorm === "/scors") && current.search.length > 1) {
+        for (const [k, v] of current.searchParams.entries()) {
+          if (v === "" && !["api", "local_ip", "mac"].includes(k.toLowerCase())) {
+            inner = decodeURIComponent(k);
+            break;
+          }
+        }
+      }
+
       if (!inner) break;
       let decodedInner = inner.trim();
       if (!/^https?:\/\//i.test(decodedInner) && !/^wss?:\/\//i.test(decodedInner)) {
@@ -229,7 +240,17 @@ export async function handleScorsRequest(request, env = {}) {
   const reqUrl = new URL(request.url);
   const normalizedPath = reqUrl.pathname.toLowerCase().replace(/\/$/, "");
 
-  if (normalizedPath !== "/scors" && normalizedPath !== "/scorsencrypted" && normalizedPath !== "/browse") {
+  const hasRootBareTarget =
+    normalizedPath === "" &&
+    reqUrl.search.length > 1 &&
+    !reqUrl.searchParams.has("api");
+
+  if (
+    normalizedPath !== "/scors" &&
+    normalizedPath !== "/scorsencrypted" &&
+    normalizedPath !== "/browse" &&
+    !hasRootBareTarget
+  ) {
     return null;
   }
 
@@ -465,6 +486,18 @@ export async function handleScorsRequest(request, env = {}) {
   }
 
   let targetUrlStr = reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
+  let usedBareQueryTarget = false;
+
+  // Support shorthand format: provider.com/?Target.com or provider.com/scors?Target.com
+  if (!targetUrlStr) {
+    for (const [key, value] of reqUrl.searchParams.entries()) {
+      if (value === "" && !["api", "local_ip", "mac"].includes(key.toLowerCase())) {
+        targetUrlStr = decodeURIComponent(key);
+        usedBareQueryTarget = true;
+        break;
+      }
+    }
+  }
 
   if (!targetUrlStr) {
     return new Response(
@@ -476,6 +509,7 @@ export async function handleScorsRequest(request, env = {}) {
           browser: `${reqUrl.origin}/browse`,
           encryptedGenerator: `${reqUrl.origin}/scorsencrypted`,
           http: `${reqUrl.pathname}?url=https://example.com`,
+          shorthand: `${reqUrl.origin}/?example.com`,
           websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`
         }
       }),
@@ -489,7 +523,7 @@ export async function handleScorsRequest(request, env = {}) {
     const decodedUrl = decodeUrlSafeBase64(targetUrlStr);
     if (decodedUrl && (/^https?:\/\//i.test(decodedUrl) || /^wss?:\/\//i.test(decodedUrl))) {
       targetUrlStr = decodedUrl;
-    } else if (decodedUrl && !decodedUrl.includes(" ")) {
+    } else if (decodedUrl && !decodedUrl.includes(" ") && decodedUrl.includes(".")) {
       targetUrlStr = "https://" + decodedUrl;
     } else {
       targetUrlStr = "https://" + targetUrlStr;
@@ -514,7 +548,12 @@ export async function handleScorsRequest(request, env = {}) {
       );
     }
 
+    let skippedFirstBareKey = false;
     reqUrl.searchParams.forEach((value, key) => {
+      if (usedBareQueryTarget && !skippedFirstBareKey && value === "") {
+        skippedFirstBareKey = true;
+        return;
+      }
       if (!["url", "ws", "api", "local_ip", "mac"].includes(key)) {
         targetUrl.searchParams.append(key, value);
       }
@@ -706,13 +745,22 @@ export async function handleScorsRequest(request, env = {}) {
                       var guard = 0;
                       while (
                         parsed.origin === PROXY_ORIGIN &&
-                        parsed.pathname.toLowerCase().replace(/\\/$/, '') === '/scors' &&
-                        parsed.searchParams.has('url') &&
                         guard < 6
                       ) {
-                        var inner = parsed.searchParams.get('url');
+                        var pathNorm = parsed.pathname.toLowerCase().replace(/\\/$/, '');
+                        var inner = null;
+                        if (pathNorm === '/scors' && parsed.searchParams.has('url')) {
+                          inner = parsed.searchParams.get('url');
+                        } else if ((pathNorm === '' || pathNorm === '/scors') && parsed.search.length > 1) {
+                          for (var entry of parsed.searchParams.entries()) {
+                            if (entry[1] === '' && ['api', 'local_ip', 'mac'].indexOf(entry[0].toLowerCase()) === -1) {
+                              inner = decodeURIComponent(entry[0]);
+                              break;
+                            }
+                          }
+                        }
                         if (!inner) break;
-                        parsed = new URL(inner, TARGET_FULL);
+                        parsed = new URL(/^https?:\\/\\//i.test(inner) ? inner : 'https://' + inner, TARGET_FULL);
                         guard++;
                       }
                       return parsed.href;
