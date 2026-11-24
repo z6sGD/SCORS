@@ -3,7 +3,6 @@ import { fetchViaSocketProxy } from "./socketProxy.js";
 
 const GITHUB_BANLIST_URL = "https://raw.githubusercontent.com/z6sGD/SCORS/main/banlist.json";
 
-// In-memory rate-limit stores so short-lived counters don't burn Cloudflare KV daily put() limits
 const ipBlockMap = new Map();
 const ipRateMap = new Map();
 const urlRateMap = new Map();
@@ -74,10 +73,7 @@ function unwrapProxyUrl(rawUrl, proxyOrigin, fallbackBase = undefined) {
   try {
     let current = fallbackBase ? new URL(rawUrl, fallbackBase) : new URL(rawUrl);
     let guard = 0;
-    while (
-      current.origin === proxyOrigin &&
-      guard < 6
-    ) {
+    while (current.origin === proxyOrigin && guard < 6) {
       const pathNorm = current.pathname.toLowerCase().replace(/\/$/, "");
       let inner = null;
 
@@ -96,9 +92,10 @@ function unwrapProxyUrl(rawUrl, proxyOrigin, fallbackBase = undefined) {
       let decodedInner = inner.trim();
       if (!/^https?:\/\//i.test(decodedInner) && !/^wss?:\/\//i.test(decodedInner)) {
         const b64 = decodeUrlSafeBase64(decodedInner);
-        decodedInner = b64 && (/^https?:\/\//i.test(b64) || /^wss?:\/\//i.test(b64))
-          ? b64
-          : `https://${decodedInner}`;
+        decodedInner =
+          b64 && (/^https?:\/\//i.test(b64) || /^wss?:\/\//i.test(b64))
+            ? b64
+            : `https://${decodedInner}`;
       }
       current = new URL(decodedInner);
       guard++;
@@ -186,9 +183,7 @@ async function logUrlVisitByIp(kvStore, ip, targetHref) {
     }
 
     await kvStore.put(logKey, JSON.stringify(row));
-  } catch (_) {
-    // Gracefully skip logging if daily KV put() quota is exhausted
-  }
+  } catch (_) {}
 }
 
 export async function syncBanlistFromGithub(env) {
@@ -240,6 +235,28 @@ export async function handleScorsRequest(request, env = {}) {
   const reqUrl = new URL(request.url);
   const normalizedPath = reqUrl.pathname.toLowerCase().replace(/\/$/, "");
 
+  let refererTargetUrl = null;
+  const refererHeader = request.headers.get("Referer");
+  if (
+    refererHeader &&
+    normalizedPath !== "" &&
+    normalizedPath !== "/scors" &&
+    normalizedPath !== "/scorsencrypted" &&
+    normalizedPath !== "/browse" &&
+    !normalizedPath.startsWith("/assets/") &&
+    normalizedPath !== "/favicon.ico"
+  ) {
+    try {
+      const refUrl = new URL(refererHeader);
+      if (refUrl.origin === reqUrl.origin) {
+        const unwrappedRef = unwrapProxyUrl(refUrl.href, reqUrl.origin);
+        if (unwrappedRef && unwrappedRef !== refUrl.href) {
+          refererTargetUrl = new URL(reqUrl.pathname + reqUrl.search, unwrappedRef).href;
+        }
+      }
+    } catch (_) {}
+  }
+
   const hasRootBareTarget =
     normalizedPath === "" &&
     reqUrl.search.length > 1 &&
@@ -249,7 +266,8 @@ export async function handleScorsRequest(request, env = {}) {
     normalizedPath !== "/scors" &&
     normalizedPath !== "/scorsencrypted" &&
     normalizedPath !== "/browse" &&
-    !hasRootBareTarget
+    !hasRootBareTarget &&
+    !refererTargetUrl
   ) {
     return null;
   }
@@ -276,7 +294,7 @@ export async function handleScorsRequest(request, env = {}) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SCORS Browser</title>
-  <link rel="icon" type="image/x-icon" href="${reqUrl.origin}/favicon.ico">
+  <link rel="icon" type="image/x-icon" href="${reqUrl.origin}/assets/favicon.ico">
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; }
@@ -336,7 +354,7 @@ export async function handleScorsRequest(request, env = {}) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SCORS URL Encryptor</title>
-  <link rel="icon" type="image/x-icon" href="${reqUrl.origin}/favicon.ico">
+  <link rel="icon" type="image/x-icon" href="${reqUrl.origin}/assets/favicon.ico">
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
     .card { background: #1e293b; padding: 2.5rem 2rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 100%; max-width: 480px; text-align: center; border: 1px solid #334155; }
@@ -471,8 +489,8 @@ export async function handleScorsRequest(request, env = {}) {
         responseTimeMs: responseTimeMs,
         deviceId: actualDeviceId,
         kvStatus: kvStatus,
-        outboundRouting: (env && env.PROXY_HOST) ? "residential_socket_tunnel" : "direct_edge_fetch",
-        timestamp: new Date().toISOString()
+        outboundRouting: env && env.PROXY_HOST ? "residential_socket_tunnel" : "direct_edge_fetch",
+        timestamp: new Date().toISOString(),
       }),
       {
         status: 200,
@@ -488,7 +506,10 @@ export async function handleScorsRequest(request, env = {}) {
   let targetUrlStr = reqUrl.searchParams.get("ws") || reqUrl.searchParams.get("url");
   let usedBareQueryTarget = false;
 
-  // Support shorthand format: provider.com/?Target.com or provider.com/scors?Target.com
+  if (!targetUrlStr && refererTargetUrl) {
+    targetUrlStr = refererTargetUrl;
+  }
+
   if (!targetUrlStr) {
     for (const [key, value] of reqUrl.searchParams.entries()) {
       if (value === "" && !["api", "local_ip", "mac"].includes(key.toLowerCase())) {
@@ -510,8 +531,8 @@ export async function handleScorsRequest(request, env = {}) {
           encryptedGenerator: `${reqUrl.origin}/scorsencrypted`,
           http: `${reqUrl.pathname}?url=https://example.com`,
           shorthand: `${reqUrl.origin}/?example.com`,
-          websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`
-        }
+          websocket: `${reqUrl.pathname}?ws=wss://echo.websocket.events`,
+        },
       }),
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
@@ -548,16 +569,18 @@ export async function handleScorsRequest(request, env = {}) {
       );
     }
 
-    let skippedFirstBareKey = false;
-    reqUrl.searchParams.forEach((value, key) => {
-      if (usedBareQueryTarget && !skippedFirstBareKey && value === "") {
-        skippedFirstBareKey = true;
-        return;
-      }
-      if (!["url", "ws", "api", "local_ip", "mac"].includes(key)) {
-        targetUrl.searchParams.append(key, value);
-      }
-    });
+    if (!refererTargetUrl) {
+      let skippedFirstBareKey = false;
+      reqUrl.searchParams.forEach((value, key) => {
+        if (usedBareQueryTarget && !skippedFirstBareKey && value === "") {
+          skippedFirstBareKey = true;
+          return;
+        }
+        if (!["url", "ws", "api", "local_ip", "mac"].includes(key)) {
+          targetUrl.searchParams.append(key, value);
+        }
+      });
+    }
 
     const hostname = targetUrl.hostname.toLowerCase();
     if (["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname) || hostname.endsWith(".local")) {
@@ -566,20 +589,20 @@ export async function handleScorsRequest(request, env = {}) {
 
     const fetchDest = (request.headers.get("sec-fetch-dest") || "").toLowerCase();
     const isStaticAsset =
-      ["style", "script", "image", "font", "audio", "video"].includes(fetchDest) ||
+      Boolean(refererTargetUrl) ||
+      ["style", "script", "image", "font", "audio", "video", "worker", "sharedworker"].includes(fetchDest) ||
       targetUrl.pathname.endsWith("/load.php") ||
-      /\.(css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|otf|map|json|mp4|webm|mp3|wav|epk|wasm|bin|data|zip|gz)$/i.test(
+      /\.(css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|otf|map|json|mp4|webm|mp3|wav|ogg|epk|wasm|bin|data|zip|gz)$/i.test(
         targetUrl.pathname
       );
 
-    // Zero-KV in-memory rate limiting (preserves daily KV put() quota)
     const now = Date.now();
     const blockedAt = ipBlockMap.get(publicIp);
     if (blockedAt && now - blockedAt < 30000) {
       return new Response(
         JSON.stringify({
           error: "Access Denied",
-          reason: "You have been temporarily blocked from sending requests because you have sent too many requests in one second."
+          reason: "You have been temporarily blocked from sending requests because you have sent too many requests in one second.",
         }),
         { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
@@ -588,12 +611,12 @@ export async function handleScorsRequest(request, env = {}) {
     const currentSecond = Math.floor(now / 1000);
     const rateEntry = ipRateMap.get(publicIp);
     if (rateEntry && rateEntry.sec === currentSecond) {
-      if (rateEntry.count >= 60) {
+      if (rateEntry.count >= 120) {
         ipBlockMap.set(publicIp, now);
         return new Response(
           JSON.stringify({
             error: "Access Denied",
-            reason: "You have been temporarily blocked from sending requests because you have sent too many requests in one second."
+            reason: "You have been temporarily blocked from sending requests because you have sent too many requests in one second.",
           }),
           { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
@@ -611,7 +634,7 @@ export async function handleScorsRequest(request, env = {}) {
         return new Response(
           JSON.stringify({
             error: "Too Many Requests",
-            reason: `You have been sending too many requests, try again in ${remainingSeconds} seconds.`
+            reason: `You have been sending too many requests, try again in ${remainingSeconds} seconds.`,
           }),
           {
             status: 429,
@@ -632,7 +655,6 @@ export async function handleScorsRequest(request, env = {}) {
     }
 
     const modifiedHeaders = new Headers(request.headers);
-    modifiedHeaders.delete("host");
     modifiedHeaders.set("Referer", targetUrl.href);
     if (modifiedHeaders.has("Origin")) {
       modifiedHeaders.set("Origin", targetUrl.origin);
@@ -655,7 +677,11 @@ export async function handleScorsRequest(request, env = {}) {
     ].forEach((h) => modifiedHeaders.delete(h));
 
     if (!modifiedHeaders.has("User-Agent")) {
-      modifiedHeaders.set("User-Agent", userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+      modifiedHeaders.set(
+        "User-Agent",
+        userAgent ||
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+      );
     }
 
     const fetchOpts = {
@@ -673,35 +699,38 @@ export async function handleScorsRequest(request, env = {}) {
       return fetch(targetUrl.href, fetchOpts);
     }
 
-    let response;
-
-    if (env && env.PROXY_HOST && env.PROXY_PORT) {
-      const proxyConfig = {
-        host: env.PROXY_HOST,
-        port: parseInt(env.PROXY_PORT, 10),
-        username: env.PROXY_USER || "",
-        password: env.PROXY_PASS || "",
-      };
-      response = await fetchViaSocketProxy(targetUrl, fetchOpts, proxyConfig);
-    } else {
-      response = await fetch(targetUrl.href, fetchOpts);
-    }
-
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const rawLocation = response.headers.get("Location");
-      if (rawLocation) {
-        const resolvedLocation = unwrapProxyUrl(new URL(rawLocation, targetUrl.href).href, reqUrl.origin);
-        const proxiedLocation = `${reqUrl.origin}/scors?url=${encodeURIComponent(resolvedLocation)}`;
-        const redirectHeaders = new Headers(corsHeaders);
-        redirectHeaders.set("Location", proxiedLocation);
-        return new Response(null, {
-          status: response.status,
-          headers: redirectHeaders,
-        });
+    const performUpstreamFetch = async (urlToFetch, opts) => {
+      if (env && env.PROXY_HOST && env.PROXY_PORT) {
+        try {
+          const proxyConfig = {
+            host: env.PROXY_HOST,
+            port: parseInt(env.PROXY_PORT, 10),
+            username: env.PROXY_USER || "",
+            password: env.PROXY_PASS || "",
+          };
+          return await fetchViaSocketProxy(new URL(urlToFetch), opts, proxyConfig);
+        } catch (_) {
+          return await fetch(urlToFetch, opts);
+        }
       }
+      return await fetch(urlToFetch, opts);
+    };
+
+    let currentFetchUrl = targetUrl.href;
+    let response = await performUpstreamFetch(currentFetchUrl, fetchOpts);
+
+    let redirectCount = 0;
+    while ([301, 302, 303, 307, 308].includes(response.status) && redirectCount < 5) {
+      const rawLocation = response.headers.get("Location");
+      if (!rawLocation) break;
+      currentFetchUrl = unwrapProxyUrl(new URL(rawLocation, currentFetchUrl).href, reqUrl.origin);
+      const nextHeaders = new Headers(modifiedHeaders);
+      nextHeaders.set("Referer", currentFetchUrl);
+      response = await performUpstreamFetch(currentFetchUrl, { ...fetchOpts, headers: nextHeaders });
+      redirectCount++;
     }
 
-    let finalTargetUrl = targetUrl;
+    let finalTargetUrl = new URL(currentFetchUrl);
     try {
       if (response.url) finalTargetUrl = new URL(response.url);
     } catch (_) {}
@@ -731,8 +760,8 @@ export async function handleScorsRequest(request, env = {}) {
         .on("head", {
           element(element) {
             element.prepend(
-              `<link rel="icon" type="image/x-icon" href="${reqUrl.origin}/favicon.ico">
-              <link rel="shortcut icon" href="${reqUrl.origin}/favicon.ico">
+              `<link rel="icon" type="image/x-icon" href="${reqUrl.origin}/assets/favicon.ico">
+              <link rel="shortcut icon" href="${reqUrl.origin}/assets/favicon.ico">
               <script>
                 (function() {
                   var PROXY_ORIGIN = ${JSON.stringify(reqUrl.origin)};
@@ -743,10 +772,7 @@ export async function handleScorsRequest(request, env = {}) {
                     try {
                       var parsed = new URL(u, TARGET_FULL);
                       var guard = 0;
-                      while (
-                        parsed.origin === PROXY_ORIGIN &&
-                        guard < 6
-                      ) {
+                      while (parsed.origin === PROXY_ORIGIN && guard < 6) {
                         var pathNorm = parsed.pathname.toLowerCase().replace(/\\/$/, '');
                         var inner = null;
                         if (pathNorm === '/scors' && parsed.searchParams.has('url')) {
@@ -816,7 +842,7 @@ export async function handleScorsRequest(request, env = {}) {
                       set: function(val) {
                         var rel = (this.getAttribute('rel') || '').toLowerCase();
                         if (rel.indexOf('icon') !== -1) {
-                          return linkHrefDesc.set.call(this, PROXY_ORIGIN + '/favicon.ico');
+                          return linkHrefDesc.set.call(this, PROXY_ORIGIN + '/assets/favicon.ico');
                         }
                         return linkHrefDesc.set.call(this, proxyAssetUrl(val));
                       }
@@ -835,17 +861,35 @@ export async function handleScorsRequest(request, env = {}) {
                     });
                   }
 
+                  var mediaSrcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+                  if (mediaSrcDesc && mediaSrcDesc.set) {
+                    Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+                      get: mediaSrcDesc.get,
+                      set: function(val) {
+                        return mediaSrcDesc.set.call(this, proxyAssetUrl(val));
+                      }
+                    });
+                  }
+
                   var origSetAttr = Element.prototype.setAttribute;
                   Element.prototype.setAttribute = function(name, val) {
                     var attr = name.toLowerCase();
                     if (this.tagName === 'LINK' && attr === 'href') {
                       var rel = (this.getAttribute('rel') || '').toLowerCase();
-                      val = rel.indexOf('icon') !== -1 ? (PROXY_ORIGIN + '/favicon.ico') : proxyAssetUrl(val);
-                    } else if ((this.tagName === 'SCRIPT' || this.tagName === 'IMG' || this.tagName === 'IFRAME') && attr === 'src') {
+                      val = rel.indexOf('icon') !== -1 ? (PROXY_ORIGIN + '/assets/favicon.ico') : proxyAssetUrl(val);
+                    } else if ((this.tagName === 'SCRIPT' || this.tagName === 'IMG' || this.tagName === 'IFRAME' || this.tagName === 'AUDIO' || this.tagName === 'VIDEO' || this.tagName === 'SOURCE') && attr === 'src') {
                       val = proxyAssetUrl(val);
                     }
                     return origSetAttr.call(this, name, val);
                   };
+
+                  var NativeWorker = window.Worker;
+                  if (NativeWorker) {
+                    window.Worker = function(scriptURL, options) {
+                      return new NativeWorker(proxyAssetUrl(String(scriptURL)), options);
+                    };
+                    window.Worker.prototype = NativeWorker.prototype;
+                  }
 
                   var NativeWebSocket = window.WebSocket;
                   if (NativeWebSocket) {
@@ -970,7 +1014,7 @@ export async function handleScorsRequest(request, env = {}) {
             } catch (_) {}
           },
         })
-        .on("img[src], script[src], link[href], iframe[src]", {
+        .on("img[src], script[src], link[href], iframe[src], audio[src], video[src], source[src]", {
           element(element) {
             const attrName = element.hasAttribute("src") ? "src" : "href";
             const rawAttrVal = element.getAttribute(attrName);
@@ -978,7 +1022,7 @@ export async function handleScorsRequest(request, env = {}) {
             if (attrVal && !attrVal.startsWith("data:") && !attrVal.startsWith("blob:")) {
               const rel = (element.getAttribute("rel") || "").toLowerCase();
               if (element.tagName === "link" && rel.includes("icon")) {
-                element.setAttribute("href", `${reqUrl.origin}/favicon.ico`);
+                element.setAttribute("href", `${reqUrl.origin}/assets/favicon.ico`);
               } else {
                 try {
                   const absoluteUrl = unwrapProxyUrl(new URL(attrVal, finalTargetUrl.href).href, reqUrl.origin);
