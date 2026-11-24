@@ -785,6 +785,7 @@ export async function handleScorsRequest(request, env = {}) {
                 (function() {
                   var PROXY_ORIGIN = ${JSON.stringify(reqUrl.origin)};
                   var TARGET_FULL = ${JSON.stringify(finalTargetUrl.href)};
+                  var NativeURL = window.URL;
 
                   function decodeB64Url(s) {
                     try {
@@ -799,7 +800,7 @@ export async function handleScorsRequest(request, env = {}) {
                   function unwrapAssetUrl(u) {
                     if (!u || typeof u !== 'string') return u;
                     try {
-                      var parsed = new URL(u, TARGET_FULL);
+                      var parsed = new NativeURL(u, TARGET_FULL);
                       var guard = 0;
                       while (parsed.origin === PROXY_ORIGIN && guard < 6) {
                         var pathNorm = parsed.pathname.toLowerCase().replace(/\\/$/, '');
@@ -823,7 +824,7 @@ export async function handleScorsRequest(request, env = {}) {
                           var b64 = decodeB64Url(inner);
                           inner = (b64 && /^https?:\\/\\//i.test(b64)) ? b64 : ('https://' + inner);
                         }
-                        parsed = new URL(inner, TARGET_FULL);
+                        parsed = new NativeURL(inner, TARGET_FULL);
                         guard++;
                       }
                       return parsed.href;
@@ -847,7 +848,7 @@ export async function handleScorsRequest(request, env = {}) {
                     }
                     var cleanTarget = unwrapAssetUrl(trimmed);
                     try {
-                      var absUrl = new URL(cleanTarget, TARGET_FULL).href;
+                      var absUrl = new NativeURL(cleanTarget, TARGET_FULL).href;
                       if (absUrl.startsWith(PROXY_ORIGIN)) return absUrl;
                       return PROXY_ORIGIN + '/scors?url=' + encodeURIComponent(absUrl);
                     } catch (e) {
@@ -936,7 +937,7 @@ export async function handleScorsRequest(request, env = {}) {
                     window.WebSocket = function(url, protocols) {
                       try {
                         var cleanWs = unwrapAssetUrl(url);
-                        var absUrl = new URL(cleanWs, TARGET_FULL).href;
+                        var absUrl = new NativeURL(cleanWs, TARGET_FULL).href;
                         var proxiedWsUrl = PROXY_ORIGIN.replace(/^http/, 'ws') + '/scors?ws=' + encodeURIComponent(absUrl);
                         return new (Function.prototype.bind.apply(NativeWebSocket, [null, proxiedWsUrl, protocols]))();
                       } catch(e) {
